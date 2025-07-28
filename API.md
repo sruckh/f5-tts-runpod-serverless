@@ -1,126 +1,95 @@
-# API.md
+# API Reference
 
-## Overview
-[Brief description of the API]
-
-## Authentication
-[Authentication methods and requirements]
-
-## Base URL
-```
-https://api.example.com/v1
-```
+This document provides a detailed reference for the F5-TTS RunPod Serverless API.
 
 ## Endpoints
 
-### [Endpoint Group Name]
-
-#### GET /endpoint
-[Description]
+### TTS Generation
 
 **Request**
-```http
-GET /api/endpoint
-Authorization: Bearer {token}
-```
-
-**Parameters**
-| Name | Type | Required | Description |
-|------|------|----------|-------------|
-| id | string | Yes | Resource ID |
-| limit | number | No | Max results (default: 20) |
-
-**Response**
 ```json
 {
-  "status": "success",
-  "data": {
-    "id": "123",
-    "name": "Example"
+  "input": {
+    "text": "Hello, world! This is a test.",
+    "speed": 1.0,
+    "return_word_timings": true,
+    "local_voice": "my-voice.wav" // or a URL to a voice file
   }
-}
-```
-
-**Status Codes**
-- `200` - Success
-- `400` - Bad Request
-- `401` - Unauthorized
-- `404` - Not Found
-- `500` - Server Error
-
-**Rate Limiting**
-- 100 requests per minute
-- Headers: `X-RateLimit-Limit`, `X-RateLimit-Remaining`
-
----
-
-### POST /endpoint
-[Description]
-
-**Request**
-```http
-POST /api/endpoint
-Content-Type: application/json
-Authorization: Bearer {token}
-```
-
-**Body**
-```json
-{
-  "name": "string",
-  "type": "string"
 }
 ```
 
 **Response**
 ```json
 {
-  "status": "success",
-  "data": {
-    "id": "456",
-    "name": "New Resource",
-    "created_at": "2024-01-01T00:00:00Z"
-  }
+  "job_id": "<uuid>",
+  "status": "QUEUED"
 }
 ```
 
-## Error Handling
+### Upload Voice Model
 
-### Error Response Format
+**Request**
 ```json
 {
-  "status": "error",
-  "error": {
-    "code": "INVALID_REQUEST",
-    "message": "Human readable error message",
-    "details": {}
+  "input": {
+    "endpoint": "upload",
+    "voice_name": "my-voice.wav",
+    "file": "<base64_encoded_file>", // or "url_file": "<url_to_file>"
   }
 }
 ```
 
-### Common Error Codes
-- `INVALID_REQUEST` - Malformed request
-- `UNAUTHORIZED` - Invalid or missing auth token
-- `FORBIDDEN` - Insufficient permissions
-- `NOT_FOUND` - Resource not found
-- `RATE_LIMITED` - Too many requests
-- `SERVER_ERROR` - Internal server error
+**Response**
+```json
+{
+  "status": "Voice 'my-voice.wav' uploaded successfully."
+}
+```
 
-## Webhooks
-[If applicable, webhook configuration and payloads]
+### Job Status
 
-## SDKs and Libraries
-- JavaScript: `npm install @example/api-client`
-- Python: `pip install example-api`
-- Go: `go get github.com/example/api-go`
+**Request**
+```json
+{
+  "input": {
+    "endpoint": "status",
+    "job_id": "<uuid>"
+  }
+}
+```
 
-## Changelog
-- **v1.1.0** - Added pagination support
-- **v1.0.0** - Initial release
+**Response**
+```json
+{
+  "job_id": "<uuid>",
+  "status": "COMPLETED" // or QUEUED, PROCESSING, ERROR
+}
+```
 
-## Keywords <!-- #keywords -->
-- api
-- endpoints
-- rest
-- authentication
-- webhooks
+### Get Result
+
+**Request**
+```json
+{
+  "input": {
+    "endpoint": "result",
+    "job_id": "<uuid>"
+  }
+}
+```
+
+**Response**
+```json
+{
+  "audio_url": "<s3_url_to_audio_file>",
+  "word_timings": [
+    {
+      "word": "Hello,",
+      "start_time": 0.0,
+      "end_time": 0.4
+    },
+    ...
+  ],
+  "duration": 2.5
+}
+```

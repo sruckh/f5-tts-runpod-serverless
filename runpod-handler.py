@@ -10,17 +10,25 @@ import os
 from typing import List, Optional
 import time
 from pydantic import BaseModel
+import uuid
+import json
+from s3_utils import upload_to_s3, download_from_s3
 
-# --- Pydantic Models ---
+# --- Data Models ---
 class WordTiming(BaseModel):
     word: str
     start_time: float
     end_time: float
 
 class TTSResponse(BaseModel):
-    audio_data: str  # Base64 encoded
-    word_timings: List[WordTiming]
-    duration: float
+    job_id: str
+    status: str
+    audio_url: Optional[str] = None
+    word_timings: Optional[List[WordTiming]] = None
+    duration: Optional[float] = None
+
+# --- Job Management ---
+jobs = {}
 
 # --- Model Loading ---
 model = None
@@ -31,12 +39,70 @@ def load_model():
     global model
     try:
         from f5_tts.api import F5TTS
-        # Note: You might need to adjust ckpt_file and vocab_file paths
         model = F5TTS(model_type="F5-TTS", ckpt_file="", vocab_file="")
         print(f"F5-TTS model loaded on {device}")
     except Exception as e:
         print(f"Error loading F5-TTS model: {e}")
         model = None
+
+# --- Helper Functions ---
+def process_tts_job(job_id, text, speed, return_word_timings, local_voice):
+    try:
+        jobs[job_id]["status"] = "PROCESSING"
+
+        voice_path = None
+        if local_voice:
+            if local_voice.startswith("http"):
+                with tempfile.NamedTemporaryFile(delete=False) as temp_voice:
+                    import requests
+                    r = requests.get(local_voice)
+                    temp_voice.write(r.content)
+                    temp_voice.flush()
+                    voice_path = temp_voice.name
+            else:
+                voice_path = f"/tmp/{local_voice}"
+                download_from_s3(f"voices/{local_voice}", voice_path)
+
+        words = text.split()
+        with tempfile.NamedTemporaryFile(suffix=".wav", delete=False) as temp_audio:
+            audio_data = model.infer(
+                text=text,
+                ref_audio_path=voice_path,
+                speed=speed
+            )
+            sf.write(temp_audio.name, audio_data, 22050)
+
+            word_timings = []
+            total_duration = len(audio_data) / 22050
+
+            if return_word_timings:
+                words_per_second = len(words) / total_duration
+                current_time = 0.0
+                for word in words:
+                    word_duration = max(0.2, len(word) * 0.08 / speed)
+                    word_timings.append(WordTiming(
+                        word=word,
+                        start_time=current_time,
+                        end_time=current_time + word_duration
+                    ))
+                    current_time += word_duration + 0.05
+
+            audio_url = upload_to_s3(temp_audio.name, f"output/{job_id}.wav")
+            os.unlink(temp_audio.name)
+
+            if voice_path:
+                os.unlink(voice_path)
+
+            jobs[job_id]["status"] = "COMPLETED"
+            jobs[job_id]["result"] = {
+                "audio_url": audio_url,
+                "word_timings": [wt.dict() for wt in word_timings],
+                "duration": total_duration
+            }
+
+    except Exception as e:
+        jobs[job_id]["status"] = "ERROR"
+        jobs[job_id]["error"] = str(e)
 
 # --- RunPod Handler ---
 def handler(job):
@@ -49,66 +115,67 @@ def handler(job):
             return {"error": "TTS model not loaded"}
 
     job_input = job.get('input', {})
-    text = job_input.get('text')
-    speed = job_input.get('speed', 1.0)
-    return_word_timings = job_input.get('return_word_timings', True)
+    endpoint = job_input.get("endpoint")
 
-    if not text:
-        return {"error": "Text input is required."}
+    if endpoint == "upload":
+        file_url = job_input.get("url_file")
+        file = job_input.get("file")
+        voice_name = job_input.get("voice_name")
 
-    try:
-        # Split text into words for timing calculation
-        words = text.split()
+        if not voice_name:
+            return {"error": "voice_name is required for upload."}
 
-        # Generate audio using F5-TTS
-        with tempfile.NamedTemporaryFile(suffix=".wav", delete=False) as temp_audio:
-            # F5-TTS generation (simplified - adapt based on actual F5-TTS API)
-            audio_data = model.infer(
-                text=text,
-                ref_audio_path=None,  # Use default voice
-                speed=speed
-            )
+        if file_url:
+            with tempfile.NamedTemporaryFile(delete=False) as temp_file:
+                import requests
+                r = requests.get(file_url)
+                temp_file.write(r.content)
+                temp_file.flush()
+                upload_to_s3(temp_file.name, f"voices/{voice_name}")
+                os.unlink(temp_file.name)
+        elif file:
+            with tempfile.NamedTemporaryFile(delete=False) as temp_file:
+                temp_file.write(base64.b64decode(file))
+                temp_file.flush()
+                upload_to_s3(temp_file.name, f"voices/{voice_name}")
+                os.unlink(temp_file.name)
+        else:
+            return {"error": "Either file or url_file is required for upload."}
 
-            # Save audio
-            sf.write(temp_audio.name, audio_data, 22050)
+        return {"status": f"Voice '{voice_name}' uploaded successfully."}
 
-            # Calculate word timings (simplified algorithm)
-            word_timings = []
-            total_duration = len(audio_data) / 22050  # Sample rate
+    elif endpoint == "status":
+        job_id = job_input.get("job_id")
+        if not job_id or job_id not in jobs:
+            return {"error": "Invalid job_id."}
+        return {"job_id": job_id, "status": jobs[job_id]["status"]}
 
-            if return_word_timings:
-                # Estimate word timing based on text length and audio duration
-                words_per_second = len(words) / total_duration
-                current_time = 0.0
+    elif endpoint == "result":
+        job_id = job_input.get("job_id")
+        if not job_id or job_id not in jobs:
+            return {"error": "Invalid job_id."}
+        if jobs[job_id]["status"] != "COMPLETED":
+            return {"error": f"Job is not complete. Status: {jobs[job_id]['status']}"}
+        return jobs[job_id]["result"]
 
-                for word in words:
-                    # Estimate word duration based on character count
-                    word_duration = max(0.2, len(word) * 0.08 / speed)
+    else:  # Default to TTS generation
+        text = job_input.get('text')
+        speed = job_input.get('speed', 1.0)
+        return_word_timings = job_input.get('return_word_timings', True)
+        local_voice = job_input.get('local_voice')
 
-                    word_timings.append(WordTiming(
-                        word=word,
-                        start_time=current_time,
-                        end_time=current_time + word_duration
-                    ))
+        if not text:
+            return {"error": "Text input is required."}
 
-                    current_time += word_duration + 0.05  # Small pause between words
+        job_id = str(uuid.uuid4())
+        jobs[job_id] = {"status": "QUEUED"}
 
-            # Encode audio as base64
-            with open(temp_audio.name, "rb") as f:
-                audio_base64 = base64.b64encode(f.read()).decode()
+        # Run the job in the background
+        import threading
+        thread = threading.Thread(target=process_tts_job, args=(job_id, text, speed, return_word_timings, local_voice))
+        thread.start()
 
-            # Cleanup
-            os.unlink(temp_audio.name)
-
-            response = TTSResponse(
-                audio_data=audio_base64,
-                word_timings=[wt.dict() for wt in word_timings],
-                duration=total_duration
-            )
-            return response.dict()
-
-    except Exception as e:
-        return {"error": f"TTS generation failed: {str(e)}"}
+        return {"job_id": job_id, "status": "QUEUED"}
 
 if __name__ == "__main__":
     load_model()
