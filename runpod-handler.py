@@ -52,8 +52,16 @@ def process_tts_job(job_id, text, speed, return_word_timings, local_voice):
 
         voice_path = None
         if local_voice:
-            voice_path = f"/tmp/{local_voice}"
-            download_from_s3(f"voices/{local_voice}", voice_path)
+            if local_voice.startswith("http"):
+                with tempfile.NamedTemporaryFile(delete=False) as temp_voice:
+                    import requests
+                    r = requests.get(local_voice)
+                    temp_voice.write(r.content)
+                    temp_voice.flush()
+                    voice_path = temp_voice.name
+            else:
+                voice_path = f"/tmp/{local_voice}"
+                download_from_s3(f"voices/{local_voice}", voice_path)
 
         words = text.split()
         with tempfile.NamedTemporaryFile(suffix=".wav", delete=False) as temp_audio:
