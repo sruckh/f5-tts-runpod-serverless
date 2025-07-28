@@ -1,0 +1,1 @@
+The project follows standard Python coding conventions (PEP 8). Based on the `server.py` examples, the code uses type hints and Pydantic models for data validation. The code is structured with a clear separation of concerns, with FastAPI handling the API layer and the TTS models handling the core logic.

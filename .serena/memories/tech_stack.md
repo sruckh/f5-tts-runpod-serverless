@@ -1,0 +1,1 @@
+The project uses a Python-based backend with FastAPI for the server. The primary TTS system is F5-TTS, which relies on PyTorch. OpenAI's Whisper is also supported. The entire environment is designed to be run within Docker containers.

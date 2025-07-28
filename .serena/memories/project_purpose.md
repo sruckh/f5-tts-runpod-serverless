@@ -1,0 +1,1 @@
+The project's purpose is to provide a Text-to-Speech (TTS) server for generating audio with word-level timings. This is primarily intended for integration with the FFmpeg API's Ken Burns effect for synchronized subtitles. The server supports two TTS systems: F5-TTS for high-quality synthesis and OpenAI Whisper for alignment and transcription.

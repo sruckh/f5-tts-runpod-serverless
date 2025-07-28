@@ -1,0 +1,19 @@
+FROM runpod/base:0.0.0-cuda0.0.0
+
+# Set working directory
+WORKDIR /app
+
+# Clone F5-TTS repository
+RUN git clone https://github.com/SWivid/F5-TTS.git .
+
+# Install Python dependencies
+RUN pip install --no-cache-dir     torch torchaudio     fastapi uvicorn     librosa soundfile     transformers     numpy scipy     pydantic     runpod
+
+# Install F5-TTS
+RUN pip install -e .
+
+# Copy the handler file
+COPY runpod-handler.py /app/runpod-handler.py
+
+# Start the serverless worker
+CMD ["python", "-u", "runpod-handler.py"]
