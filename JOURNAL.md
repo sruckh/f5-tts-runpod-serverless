@@ -50,5 +50,16 @@
 - **What**: Corrected the `pip install` path in `Dockerfile.runpod`.
 - **Why**: The `pip install -e .` command was being run from the root of the `/app` directory, where there is no `setup.py`.
 - **How**: Modified the `Dockerfile.runpod` to change into the `F5-TTS` directory before running `pip install -e .`.
+- **Issues**: This fix was incorrect and caused the build to fail.
+- **Result**: The Dockerfile still did not correctly install the F5-TTS package.
+
+---
+
+## 2025-07-29 00:15
+
+### Correct Dockerfile pip install path again |TASK:TASK-2025-07-29-002|
+- **What**: Corrected the `pip install` path in `Dockerfile.runpod` again.
+- **Why**: The previous fix was incorrect. The `git clone ... .` command places the repository contents in the current directory, so the `pip install -e .` command should be run from there.
+- **How**: Modified the `Dockerfile.runpod` to run `pip install -e .` in the `/app` directory.
 - **Issues**: None.
 - **Result**: The Dockerfile now correctly installs the F5-TTS package.

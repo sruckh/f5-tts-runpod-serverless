@@ -3,26 +3,26 @@
 ## Active Phase
 **Phase**: Refinement
 **Started**: 2025-07-28
-**Target**: 2025-07-28
-**Progress**: 0/1 tasks completed
+**Target**: 2025-07-29
+**Progress**: 1/2 tasks completed
 
 ## Current Task
-**Task ID**: TASK-2025-07-29-001
-**Title**: Fix Dockerfile pip install path
+**Task ID**: TASK-2025-07-29-002
+**Title**: Correct Dockerfile pip install path again
 **Status**: IN_PROGRESS
-**Started**: 2025-07-29 00:00
-**Dependencies**: None
+**Started**: 2025-07-29 00:15
+**Dependencies**: TASK-2025-07-29-001
 
 ### Task Context
-- **Previous Work**: Update CONFIG.md with S3 variables (TASK-2025-07-28-005)
+- **Previous Work**: Fix Dockerfile pip install path (TASK-2025-07-29-001)
 - **Key Files**: `Dockerfile.runpod`
 - **Environment**: Local.
-- **Next Steps**: Update JOURNAL.md, create a memory, and commit the changes.
+- **Next Steps**: Update JOURNAL.md, update the memory, and commit the changes.
 
 ### Findings & Decisions
-- **FINDING-001**: The `pip install -e .` command in `Dockerfile.runpod` was being executed in the wrong directory.
-- **DECISION-001**: Modified the `Dockerfile.runpod` to `cd` into the `F5-TTS` directory before running `pip install -e .`.
+- **FINDING-001**: The previous fix for the Dockerfile was incorrect and still caused the build to fail.
+- **DECISION-001**: The `git clone ... .` command places files in the current directory, so the correct command is `pip install -e .`.
 
 ### Task Chain
-1. ✅ Update CONFIG.md with S3 variables (TASK-2025-07-28-005)
-2. 🔄 Fix Dockerfile pip install path (CURRENT)
+1. ✅ Fix Dockerfile pip install path (TASK-2025-07-29-001)
+2. 🔄 Correct Dockerfile pip install path again (CURRENT)
