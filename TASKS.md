@@ -1,30 +1,32 @@
 # Task Management
 
 ## Active Phase
-**Phase**: Refinement
-**Started**: 2025-07-28
+**Phase**: Architecture Optimization
+**Started**: 2025-07-29
 **Target**: 2025-07-29
-**Progress**: 3/3 tasks completed
+**Progress**: 1/1 tasks completed
 
 ## Current Task
-**Task ID**: TASK-2025-07-29-003
-**Title**: Fix distutils error in Dockerfile
+**Task ID**: TASK-2025-07-29-004
+**Title**: F5-TTS RunPod Architecture Optimization
 **Status**: COMPLETE
-**Started**: 2025-07-29 00:30
-**Dependencies**: TASK-2025-07-29-002
+**Started**: 2025-07-29 13:45
+**Dependencies**: TASK-2025-07-29-003
 
 ### Task Context
-- **Previous Work**: Correct Dockerfile pip install path again (TASK-2025-07-29-002)
-- **Key Files**: `Dockerfile.runpod`
-- **Environment**: Local.
-- **Next Steps**: Update JOURNAL.md, update the memory, and commit the changes.
+- **Previous Work**: Major architectural pivot from embedded to wrapper approach
+- **Key Files**: `Dockerfile.runpod`, `runpod-handler.py`, `s3_utils.py`, `CONFIG.md`
+- **Environment**: RunPod serverless deployment
+- **Next Steps**: Deploy and test optimized configuration
 
 ### Findings & Decisions
-- **FINDING-001**: The Docker build is failing with a `ModuleNotFoundError: No module named 'distutils'` when jieba package tries to build from source.
-- **FINDING-002**: Missing build tools required for Python package compilation from source.
-- **DECISION-001**: Added `build-essential` package to provide C/C++ compilation tools for Python packages.
-- **DECISION-002**: Added explicit setuptools upgrade before F5-TTS installation to ensure distutils module availability.
+- **FINDING-001**: Original embedded approach was fundamentally flawed - container size >8GB, build failures due to space constraints
+- **FINDING-002**: Official F5-TTS container (`ghcr.io/swivid/f5-tts:main`) provides optimized base with pre-built models
+- **FINDING-003**: S3-based storage more efficient than embedding models in container for serverless deployment
+- **DECISION-001**: Complete architectural pivot to wrapper approach using official container → Link to [ARCHITECTURE.md](ARCHITECTURE.md)
+- **DECISION-002**: Implement comprehensive error handling and logging for production reliability
+- **DECISION-003**: Use structured documentation following CONDUCTOR.md patterns
 
 ### Task Chain
-1. ✅ Correct Dockerfile pip install path again (TASK-2025-07-29-002)
-2. ✅ Fix distutils error in Dockerfile (TASK-2025-07-29-003)
+1. ✅ Fix distutils error in Dockerfile (TASK-2025-07-29-003)
+2. ✅ F5-TTS RunPod Architecture Optimization (TASK-2025-07-29-004) (CURRENT)
