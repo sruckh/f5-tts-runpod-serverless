@@ -13,15 +13,23 @@ RUN pip install --no-cache-dir \
 # Copy our serverless handler and utilities
 COPY runpod-handler.py /app/runpod-handler.py
 COPY s3_utils.py /app/s3_utils.py
+COPY model_cache_init.py /app/model_cache_init.py
 
-# Create model cache directory
-RUN mkdir -p /app/models
+# Create model cache directories
+RUN mkdir -p /app/models /runpod-volume/models
 
 # Set environment variables for optimal performance
 ENV PYTORCH_CUDA_ALLOC_CONF=max_split_size_mb:512
 ENV CUDA_VISIBLE_DEVICES=0
-ENV HF_HOME=/app/models
-ENV TRANSFORMERS_CACHE=/app/models
 
-# Start the serverless worker
-CMD ["python", "-u", "runpod-handler.py"]
+# Use RunPod persistent volume for model caching (fallback to local if not available)
+ENV HF_HOME=/runpod-volume/models
+ENV TRANSFORMERS_CACHE=/runpod-volume/models
+ENV HF_HUB_CACHE=/runpod-volume/models/hub
+ENV TORCH_HOME=/runpod-volume/models/torch
+
+# Create symlink for backward compatibility  
+RUN ln -sf /runpod-volume/models /app/models || true
+
+# Initialize model cache and start the serverless worker
+CMD ["sh", "-c", "python /app/model_cache_init.py && python -u /app/runpod-handler.py"]

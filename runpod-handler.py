@@ -79,6 +79,8 @@ def process_tts_job(job_id, text, speed, return_word_timings, local_voice):
             raise Exception("Failed to load F5-TTS model")
 
         voice_path = None
+        ref_text = None
+        
         if local_voice:
             if local_voice.startswith("http"):
                 with tempfile.NamedTemporaryFile(delete=False, suffix=".wav") as temp_voice:
@@ -96,18 +98,41 @@ def process_tts_job(job_id, text, speed, return_word_timings, local_voice):
                 print(f"📥 Downloading voice from S3: voices/{local_voice}")
                 if not download_from_s3(f"voices/{local_voice}", voice_path):
                     raise Exception(f"Failed to download voice: {local_voice}")
+                
+                # Try to download corresponding reference text file
+                text_filename = local_voice.replace('.wav', '.txt')
+                text_path = f"/tmp/{text_filename}"
+                temp_files.append(text_path)
+                print(f"📥 Attempting to download reference text: voices/{text_filename}")
+                if download_from_s3(f"voices/{text_filename}", text_path):
+                    try:
+                        with open(text_path, 'r', encoding='utf-8') as f:
+                            ref_text = f.read().strip()
+                        print(f"✅ Reference text loaded: {len(ref_text)} characters")
+                    except Exception as e:
+                        print(f"⚠️ Failed to read reference text: {e}")
+                        ref_text = None
+                else:
+                    print(f"⚠️ No reference text found for {local_voice}")
 
         # Generate audio
         print(f"🎵 Generating audio with F5-TTS...")
         with tempfile.NamedTemporaryFile(suffix=".wav", delete=False) as temp_audio:
             temp_files.append(temp_audio.name)
             
-            # Use the model's infer method
-            audio_data = current_model.infer(
-                text=text,
-                ref_audio=voice_path,  # Updated parameter name
-                speed=speed
-            )
+            # Use the model's infer method with reference text if available
+            infer_params = {
+                "text": text,
+                "ref_audio": voice_path,
+                "speed": speed
+            }
+            
+            # Add reference text if available (F5-TTS uses this for better voice cloning)
+            if ref_text:
+                infer_params["ref_text"] = ref_text
+                print(f"🎯 Using reference text for better voice cloning")
+            
+            audio_data = current_model.infer(**infer_params)
             
             # Write audio file
             sf.write(temp_audio.name, audio_data, 22050)
@@ -180,31 +205,105 @@ def handler(job):
         print(f"🎯 Handling request - endpoint: {endpoint}")
 
         if endpoint == "upload":
-            file_url = job_input.get("url_file")
-            file = job_input.get("file")
+            # Voice file parameters
+            voice_file_url = job_input.get("voice_file_url")
+            voice_file = job_input.get("voice_file")  # base64
             voice_name = job_input.get("voice_name")
+            
+            # Reference text parameters  
+            reference_text = job_input.get("reference_text")
+            text_file_url = job_input.get("text_file_url")
+            text_file = job_input.get("text_file")  # base64
 
             if not voice_name:
                 return {"error": "voice_name is required for upload."}
 
-            if file_url:
-                with tempfile.NamedTemporaryFile(delete=False) as temp_file:
-                    import requests
-                    r = requests.get(file_url)
-                    temp_file.write(r.content)
-                    temp_file.flush()
-                    upload_to_s3(temp_file.name, f"voices/{voice_name}")
-                    os.unlink(temp_file.name)
-            elif file:
-                with tempfile.NamedTemporaryFile(delete=False) as temp_file:
-                    temp_file.write(base64.b64decode(file))
-                    temp_file.flush()
-                    upload_to_s3(temp_file.name, f"voices/{voice_name}")
-                    os.unlink(temp_file.name)
+            # Upload voice file
+            voice_uploaded = False
+            if voice_file_url:
+                try:
+                    with tempfile.NamedTemporaryFile(delete=False, suffix=".wav") as temp_file:
+                        import requests
+                        print(f"📥 Downloading voice file from URL: {voice_file_url}")
+                        r = requests.get(voice_file_url, timeout=60)
+                        r.raise_for_status()
+                        temp_file.write(r.content)
+                        temp_file.flush()
+                        if upload_to_s3(temp_file.name, f"voices/{voice_name}"):
+                            voice_uploaded = True
+                        os.unlink(temp_file.name)
+                except Exception as e:
+                    return {"error": f"Failed to download/upload voice file: {str(e)}"}
+                    
+            elif voice_file:
+                # DEPRECATED: Base64 support will be removed in future versions
+                print("⚠️ WARNING: Base64 file upload is deprecated. Use voice_file_url instead.")
+                try:
+                    with tempfile.NamedTemporaryFile(delete=False, suffix=".wav") as temp_file:
+                        temp_file.write(base64.b64decode(voice_file))
+                        temp_file.flush()
+                        if upload_to_s3(temp_file.name, f"voices/{voice_name}"):
+                            voice_uploaded = True
+                        os.unlink(temp_file.name)
+                except Exception as e:
+                    return {"error": f"Failed to process voice file: {str(e)}"}
             else:
-                return {"error": "Either file or url_file is required for upload."}
+                return {"error": "Either voice_file or voice_file_url is required for upload."}
 
-            return {"status": f"Voice '{voice_name}' uploaded successfully."}
+            # Upload reference text (required for F5-TTS)
+            text_uploaded = False
+            text_filename = voice_name.replace('.wav', '.txt')
+            
+            if reference_text:
+                # Direct text provided
+                try:
+                    with tempfile.NamedTemporaryFile(delete=False, suffix=".txt", mode='w', encoding='utf-8') as temp_file:
+                        temp_file.write(reference_text)
+                        temp_file.flush()
+                        if upload_to_s3(temp_file.name, f"voices/{text_filename}"):
+                            text_uploaded = True
+                        os.unlink(temp_file.name)
+                except Exception as e:
+                    return {"error": f"Failed to upload reference text: {str(e)}"}
+                    
+            elif text_file_url:
+                # Text file from URL
+                try:
+                    with tempfile.NamedTemporaryFile(delete=False, suffix=".txt") as temp_file:
+                        import requests
+                        print(f"📥 Downloading text file from URL: {text_file_url}")
+                        r = requests.get(text_file_url, timeout=30)
+                        r.raise_for_status()
+                        temp_file.write(r.content)
+                        temp_file.flush()
+                        if upload_to_s3(temp_file.name, f"voices/{text_filename}"):
+                            text_uploaded = True
+                        os.unlink(temp_file.name)
+                except Exception as e:
+                    return {"error": f"Failed to download/upload text file: {str(e)}"}
+                    
+            elif text_file:
+                # DEPRECATED: Base64 support will be removed in future versions
+                print("⚠️ WARNING: Base64 text file upload is deprecated. Use text_file_url or reference_text instead.")
+                try:
+                    with tempfile.NamedTemporaryFile(delete=False, suffix=".txt") as temp_file:
+                        temp_file.write(base64.b64decode(text_file))
+                        temp_file.flush()
+                        if upload_to_s3(temp_file.name, f"voices/{text_filename}"):
+                            text_uploaded = True
+                        os.unlink(temp_file.name)
+                except Exception as e:
+                    return {"error": f"Failed to process text file: {str(e)}"}
+            else:
+                return {"error": "Reference text is required. Provide reference_text, text_file_url, or text_file."}
+
+            # Return success status
+            if voice_uploaded and text_uploaded:
+                return {"status": f"Voice '{voice_name}' and reference text uploaded successfully."}
+            elif voice_uploaded:
+                return {"error": "Voice file uploaded but reference text failed."}
+            else:
+                return {"error": "Failed to upload voice file."}
 
         elif endpoint == "status":
             job_id = job_input.get("job_id")
@@ -219,6 +318,44 @@ def handler(job):
             if jobs[job_id]["status"] != "COMPLETED":
                 return {"error": f"Job is not complete. Status: {jobs[job_id]['status']}"}
             return jobs[job_id]["result"]
+            
+        elif endpoint == "list_voices":
+            # List available voices in S3
+            try:
+                voices = []
+                if s3_client and S3_BUCKET:
+                    from s3_utils import s3_client, S3_BUCKET
+                    response = s3_client.list_objects_v2(Bucket=S3_BUCKET, Prefix="voices/")
+                    
+                    if 'Contents' in response:
+                        voice_files = {}
+                        for obj in response['Contents']:
+                            key = obj['Key']
+                            filename = key.replace('voices/', '')
+                            
+                            if filename.endswith('.wav'):
+                                voice_name = filename
+                                text_name = filename.replace('.wav', '.txt')
+                                voice_files[voice_name] = {
+                                    'voice_file': voice_name,
+                                    'text_file': None,
+                                    'size': obj['Size'],
+                                    'last_modified': obj['LastModified'].isoformat()
+                                }
+                            elif filename.endswith('.txt'):
+                                voice_name = filename.replace('.txt', '.wav')
+                                if voice_name in voice_files:
+                                    voice_files[voice_name]['text_file'] = filename
+                        
+                        voices = list(voice_files.values())
+                
+                return {
+                    "voices": voices,
+                    "count": len(voices),
+                    "status": "success"
+                }
+            except Exception as e:
+                return {"error": f"Failed to list voices: {str(e)}"}
 
         else:  # Default to TTS generation
             text = job_input.get('text')
