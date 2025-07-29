@@ -1,0 +1,1 @@
+The `Dockerfile.runpod` was updated to correct the `pip install` path. The `pip install -e .` command is now run from within the `F5-TTS` directory, which is the correct location for the `setup.py` file. This ensures that the F5-TTS package is correctly installed when building the Docker image.

@@ -25,7 +25,7 @@ RUN git clone https://github.com/SWivid/F5-TTS.git .
 RUN pip install --no-cache-dir     torch torchaudio     fastapi uvicorn     librosa soundfile     transformers     numpy scipy     pydantic     runpod     boto3
 
 # Install F5-TTS
-RUN pip install -e .
+RUN cd F5-TTS && pip install -e .
 
 # Copy the handler file
 COPY runpod-handler.py /app/runpod-handler.py

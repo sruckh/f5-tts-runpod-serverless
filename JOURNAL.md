@@ -41,3 +41,14 @@
 - **How**: Analyzed `s3_utils.py` and `runpod-handler.py` to identify the correct environment variables and updated `CONFIG.md` accordingly.
 - **Issues**: None.
 - **Result**: `CONFIG.md` now accurately documents the required S3 configuration.
+
+---
+
+## 2025-07-29 00:00
+
+### Fix Dockerfile pip install path |TASK:TASK-2025-07-29-001|
+- **What**: Corrected the `pip install` path in `Dockerfile.runpod`.
+- **Why**: The `pip install -e .` command was being run from the root of the `/app` directory, where there is no `setup.py`.
+- **How**: Modified the `Dockerfile.runpod` to change into the `F5-TTS` directory before running `pip install -e .`.
+- **Issues**: None.
+- **Result**: The Dockerfile now correctly installs the F5-TTS package.
