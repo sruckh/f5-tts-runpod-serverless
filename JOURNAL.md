@@ -21,3 +21,14 @@
 - **Result**: The serverless worker now supports S3 storage, job tracking, and new endpoints for uploading voice models, checking job status, and retrieving results.
 
 ---
+
+## 2025-07-28 23:15
+
+### Fix GitHub Action Workflow
+- **What**: Corrected Docker Hub authentication, updated GitHub Actions versions, and specified `linux/amd64` platform for Docker build.
+- **Why**: To resolve build failures and deprecation warnings in the CI/CD pipeline.
+- **How**: Fixed typo in `DOCKER_PASSWORD` secret, updated `actions/checkout`, `docker/setup-buildx-action`, `docker/login-action`, and `docker/build-push-action` to their latest versions, and added `platforms: linux/amd64` to the build step.
+- **Issues**: Initial push failed due to unset upstream branch for the new feature branch.
+- **Result**: The GitHub Action workflow now correctly builds and pushes the Docker image to Docker Hub for `linux/amd64` architecture.
+
+---

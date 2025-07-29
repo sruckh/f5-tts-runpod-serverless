@@ -1,0 +1,1 @@
+The GitHub Action workflow for building and pushing the Docker image has been fixed. This includes correcting the Docker Hub authentication, updating GitHub Actions to their latest versions, and specifying the `linux/amd64` platform for the Docker build.
