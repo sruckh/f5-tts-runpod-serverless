@@ -4,163 +4,41 @@
 
 ### Required Variables
 ```bash
-# Application
-APP_ENV=production|staging|development
-APP_PORT=3000
-APP_URL=https://example.com
-
-# Database
-DATABASE_URL=postgresql://user:pass@host:5432/dbname
-DATABASE_POOL_SIZE=20
-
-# Authentication
-JWT_SECRET=your-secret-key-here
-SESSION_SECRET=your-session-secret
+# AWS S3 Configuration
+S3_BUCKET=your-s3-bucket-name
+AWS_ACCESS_KEY_ID=your-aws-access-key-id
+AWS_SECRET_ACCESS_KEY=your-aws-secret-access-key
+AWS_REGION=your-aws-region
 ```
 
 ### Optional Variables
-```bash
-# Features
-ENABLE_FEATURE_X=true
-ENABLE_BETA_FEATURES=false
-
-# External Services
-REDIS_URL=redis://localhost:6379
-SMTP_HOST=smtp.example.com
-SMTP_PORT=587
-SMTP_USER=notifications@example.com
-SMTP_PASS=password
-
-# Monitoring
-SENTRY_DSN=https://key@sentry.io/project
-LOG_LEVEL=info|debug|error|warn
-
-# Performance
-CACHE_TTL=3600
-MAX_UPLOAD_SIZE=10MB
-REQUEST_TIMEOUT=30s
-```
+There are no optional environment variables for this project.
 
 ## Configuration Files
-
-### Development
-```json
-// config/development.json
-{
-  "app": {
-    "port": 3000,
-    "debug": true
-  },
-  "database": {
-    "host": "localhost",
-    "logging": true
-  }
-}
-```
-
-### Production
-```json
-// config/production.json
-{
-  "app": {
-    "port": 8080,
-    "debug": false
-  },
-  "database": {
-    "host": "prod-db.example.com",
-    "logging": false
-  }
-}
-```
+This project does not use configuration files. Configuration is managed through environment variables.
 
 ## Feature Flags
-
-### Current Flags
-| Flag | Default | Description |
-|------|---------|-------------|
-| `NEW_UI` | false | Enable redesigned interface |
-| `DARK_MODE` | true | Dark mode support |
-| `API_V2` | false | Use v2 API endpoints |
-| `ANALYTICS` | true | Enable analytics tracking |
-
-### Usage
-```javascript
-if (config.features.NEW_UI) {
-  // New UI code
-}
-```
+This project does not use feature flags.
 
 ## Security Configuration
-
-### CORS Settings
-```javascript
-cors: {
-  origin: ['https://example.com', 'https://app.example.com'],
-  credentials: true,
-  maxAge: 86400
-}
-```
-
-### Rate Limiting
-```javascript
-rateLimit: {
-  windowMs: 15 * 60 * 1000, // 15 minutes
-  max: 100, // limit each IP to 100 requests per window
-  skipSuccessfulRequests: false
-}
-```
+Security is managed through AWS IAM roles and policies. Ensure that the AWS credentials provided have the necessary permissions for S3 operations (upload, download).
 
 ## Performance Tuning
-
-### Cache Configuration
-```javascript
-cache: {
-  redis: {
-    ttl: 3600,
-    prefix: 'app:cache:'
-  },
-  memory: {
-    max: 100,
-    ttl: 600
-  }
-}
-```
-
-### Database Pool
-```javascript
-database: {
-  pool: {
-    min: 2,
-    max: 20,
-    acquireTimeout: 30000,
-    idleTimeout: 10000
-  }
-}
-```
+Performance is not configurable for this project.
 
 ## Common Configuration Patterns
 
-### Loading Environment Variables
-```javascript
-// Using dotenv
-require('dotenv').config();
-
-// With validation
-const config = {
-  port: process.env.PORT || 3000,
-  database: process.env.DATABASE_URL || throw new Error('DATABASE_URL required')
-};
-```
-
-### Configuration by Environment
-```javascript
-const env = process.env.NODE_ENV || 'development';
-const config = require(`./config/${env}.json`);
+### Setting Environment Variables
+```bash
+export S3_BUCKET="your-s3-bucket-name"
+export AWS_ACCESS_KEY_ID="your-aws-access-key-id"
+export AWS_SECRET_ACCESS_KEY="your-aws-secret-access-key"
+export AWS_REGION="your-aws-region"
 ```
 
 ## Keywords <!-- #keywords -->
 - configuration
 - environment variables
 - settings
-- feature flags
-- security
+- aws
+- s3

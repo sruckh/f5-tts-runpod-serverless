@@ -1,32 +1,27 @@
 # Task Management
 
 ## Active Phase
-**Phase**: Feature Enhancements
+**Phase**: Documentation
 **Started**: 2025-07-28
-**Target**: 2025-07-29
-**Progress**: 4/4 tasks completed
+**Target**: 2025-07-28
+**Progress**: 1/1 tasks completed
 
 ## Current Task
-**Task ID**: TASK-2025-07-28-004
-**Title**: Fix GitHub Action Workflow
+**Task ID**: TASK-2025-07-28-005
+**Title**: Update CONFIG.md with S3 variables
 **Status**: COMPLETE
-**Started**: 2025-07-28 23:00
+**Started**: 2025-07-28 23:30
 **Dependencies**: None
 
 ### Task Context
-- **Previous Work**: Implementing S3 storage and job tracking.
-- **Key Files**: `.github/workflows/docker-publish.yml`
-- **Environment**: GitHub Actions.
+- **Previous Work**: Fixing the GitHub Action workflow.
+- **Key Files**: `CONFIG.md`, `s3_utils.py`, `runpod-handler.py`
+- **Environment**: Local.
 - **Next Steps**: None
 
 ### Findings & Decisions
-- **FINDING-001**: Typo in Docker password secret name (`DOCKOCKER_PASSWORD`).
-- **FINDING-002**: Deprecation warning for `save-state` command.
-- **FINDING-003**: Need to specify `linux/amd64` platform for Docker build.
-- **DECISION-001**: Updated secret name, upgraded GitHub Actions versions, and added `platforms` attribute to build step.
+- **FINDING-001**: `CONFIG.md` was outdated and did not reflect the S3 variables used in the project.
+- **DECISION-001**: Updated `CONFIG.md` with the correct S3 variables based on `s3_utils.py` and `runpod-handler.py`.
 
 ### Task Chain
-1. ✅ Implement S3 storage and job tracking (TASK-2025-07-28-001)
-2. ✅ Handle both URL and filename for `local_voice` (TASK-2025-07-28-002)
-3. ✅ Update documentation (TASK-2025-07-28-003)
-4. ✅ Fix GitHub Action Workflow (TASK-2025-07-28-004)
+1. ✅ Update CONFIG.md with S3 variables (TASK-2025-07-28-005)
