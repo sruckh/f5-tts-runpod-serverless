@@ -32,3 +32,12 @@
 - **Result**: The GitHub Action workflow now correctly builds and pushes the Docker image to Docker Hub for `linux/amd64` architecture.
 
 ---
+
+## 2025-07-28 23:45
+
+### Update CONFIG.md with S3 variables
+- **What**: Updated `CONFIG.md` to reflect the S3 variables used in the project.
+- **Why**: The existing `CONFIG.md` was outdated and did not contain the correct information.
+- **How**: Analyzed `s3_utils.py` and `runpod-handler.py` to identify the correct environment variables and updated `CONFIG.md` accordingly.
+- **Issues**: None.
+- **Result**: `CONFIG.md` now accurately documents the required S3 configuration.
