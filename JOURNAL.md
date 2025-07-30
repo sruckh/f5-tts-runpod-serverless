@@ -121,3 +121,33 @@
 - `S3_STRUCTURE.md` - New file documenting S3 organization and best practices
 
 ---
+
+## 2025-07-30 12:00
+
+### Voice Transcription Format Conversion for F5-TTS |TASK:TASK-2025-07-30-001|
+- **What**: Converted voice transcriptions from SRT/CSV formats to F5-TTS compatible plain text files
+- **Why**: F5-TTS requires simple .txt reference files alongside voice audio for optimal voice cloning quality
+- **How**: 
+  - **Git Pull**: Successfully pulled main branch with new Voices directory containing 5 voice models
+  - **Format Analysis**: Analyzed SRT (subtitle) and CSV (timestamped segments) transcription formats
+  - **Conversion Script**: Created `convert_transcriptions.py` with parsers for both SRT and CSV formats
+  - **Text Extraction**: Implemented clean text extraction removing timestamps and formatting
+  - **File Generation**: Generated matching .txt files for all 5 voice models (Dorota, Elijah, Kim, Kurt, Scott)
+  - **Privacy Protection**: Added Voices/ directory to .gitignore to exclude personal audio data from repository
+- **Issues**: 
+  - Initial understanding of F5-TTS transcription requirements needed research
+  - SRT format required careful parsing to extract subtitle text without timestamps
+  - CSV format had inconsistent structure requiring flexible parsing approach
+- **Result**:
+  - **Voice Models Ready**: 5 voice models now have proper F5-TTS format reference text files
+  - **File Sizes**: Generated text files ranging from 523 to 4029 characters
+  - **Quality**: Clean, continuous text matching spoken audio for optimal voice cloning
+  - **Privacy**: Voice files excluded from git repository while maintaining conversion tooling
+  - **Automation**: Reusable conversion script for future voice model additions
+
+### Key Files Created/Modified
+- `convert_transcriptions.py` - Automated transcription format conversion tool
+- `Voices/*.txt` - F5-TTS compatible reference text files (5 files)
+- `.gitignore` - Added Voices/ directory exclusion for privacy and repository size management
+
+---

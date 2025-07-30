@@ -7,30 +7,28 @@
 **Progress**: 2/2 tasks completed
 
 ## Current Task
-**Task ID**: TASK-2025-07-29-005
-**Title**: F5-TTS API Enhancement & Production Features
+**Task ID**: TASK-2025-07-30-001
+**Title**: Voice Transcription Format Conversion for F5-TTS
 **Status**: COMPLETE
-**Started**: 2025-07-29 15:30
-**Dependencies**: TASK-2025-07-29-004
+**Started**: 2025-07-30 12:00
+**Dependencies**: None
 
 ### Task Context
-- **Previous Work**: Complete F5-TTS RunPod optimization with persistent storage and enhanced API
-- **Key Files**: `runpod-handler.py:lines 182-358`, `API.md`, `S3_STRUCTURE.md`, `model_cache_init.py`, `Dockerfile.runpod:lines 24-35`
-- **Environment**: RunPod serverless with S3 integration and persistent model caching
-- **Next Steps**: Deploy enhanced API and test production features
+- **Previous Work**: User provided new Voices directory with 5 voice models and transcriptions in SRT/CSV format
+- **Key Files**: `Voices/` directory, `convert_transcriptions.py`, `.gitignore`
+- **Environment**: F5-TTS requires plain text reference files matching audio for voice cloning
+- **Next Steps**: Voice models ready for F5-TTS training and deployment
 
 ### Findings & Decisions
-- **FINDING-001**: F5-TTS requires reference text files alongside voice files for optimal quality
-- **FINDING-002**: Base64 uploads cause payload size issues - URL-based uploads more efficient
-- **FINDING-003**: HuggingFace model caching critical for RunPod cold start performance
-- **FINDING-004**: S3 directory structure needed clear documentation for voice management
-- **DECISION-001**: Implement comprehensive voice upload system with text file support → runpod-handler.py:182-278
-- **DECISION-002**: Deprecate base64 uploads in favor of URL-based system for efficiency
-- **DECISION-003**: Add persistent model storage using RunPod volumes → Dockerfile.runpod:24-31
-- **DECISION-004**: Create structured S3 organization with voices/, output/, models/ directories
-- **DECISION-005**: Add list_voices endpoint for voice management → runpod-handler.py:322-358
+- **FINDING-001**: F5-TTS requires simple .txt files containing exact transcription text for reference
+- **FINDING-002**: SRT and CSV formats needed parsing to extract clean text content
+- **FINDING-003**: Voice files contain personal audio data and should be excluded from git repository
+- **DECISION-001**: Create conversion script to automatically parse transcriptions → convert_transcriptions.py
+- **DECISION-002**: Add Voices/ directory to .gitignore for privacy and repository size management
+- **DECISION-003**: Generate matching .txt files for each voice model using SRT as primary source
 
 ### Task Chain
 1. ✅ Fix distutils error in Dockerfile (TASK-2025-07-29-003)
 2. ✅ F5-TTS RunPod Architecture Optimization (TASK-2025-07-29-004)
-3. ✅ F5-TTS API Enhancement & Production Features (TASK-2025-07-29-005) (CURRENT)
+3. ✅ F5-TTS API Enhancement & Production Features (TASK-2025-07-29-005)
+4. ✅ Voice Transcription Format Conversion for F5-TTS (TASK-2025-07-30-001) (CURRENT)
