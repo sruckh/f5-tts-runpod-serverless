@@ -210,8 +210,7 @@ def handler(job):
             voice_file = job_input.get("voice_file")  # base64
             voice_name = job_input.get("voice_name")
             
-            # Reference text parameters  
-            reference_text = job_input.get("reference_text")
+            # Reference text file parameters (text must be provided as file, not direct string)
             text_file_url = job_input.get("text_file_url")
             text_file = job_input.get("text_file")  # base64
 
@@ -250,23 +249,11 @@ def handler(job):
             else:
                 return {"error": "Either voice_file or voice_file_url is required for upload."}
 
-            # Upload reference text (required for F5-TTS)
+            # Upload reference text file (required for F5-TTS)
             text_uploaded = False
             text_filename = voice_name.replace('.wav', '.txt')
             
-            if reference_text:
-                # Direct text provided
-                try:
-                    with tempfile.NamedTemporaryFile(delete=False, suffix=".txt", mode='w', encoding='utf-8') as temp_file:
-                        temp_file.write(reference_text)
-                        temp_file.flush()
-                        if upload_to_s3(temp_file.name, f"voices/{text_filename}"):
-                            text_uploaded = True
-                        os.unlink(temp_file.name)
-                except Exception as e:
-                    return {"error": f"Failed to upload reference text: {str(e)}"}
-                    
-            elif text_file_url:
+            if text_file_url:
                 # Text file from URL
                 try:
                     with tempfile.NamedTemporaryFile(delete=False, suffix=".txt") as temp_file:
@@ -284,7 +271,7 @@ def handler(job):
                     
             elif text_file:
                 # DEPRECATED: Base64 support will be removed in future versions
-                print("⚠️ WARNING: Base64 text file upload is deprecated. Use text_file_url or reference_text instead.")
+                print("⚠️ WARNING: Base64 text file upload is deprecated. Use text_file_url instead.")
                 try:
                     with tempfile.NamedTemporaryFile(delete=False, suffix=".txt") as temp_file:
                         temp_file.write(base64.b64decode(text_file))
@@ -295,7 +282,7 @@ def handler(job):
                 except Exception as e:
                     return {"error": f"Failed to process text file: {str(e)}"}
             else:
-                return {"error": "Reference text is required. Provide reference_text, text_file_url, or text_file."}
+                return {"error": "Reference text file is required. Provide text_file_url or text_file."}
 
             # Return success status
             if voice_uploaded and text_uploaded:

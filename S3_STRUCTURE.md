@@ -98,7 +98,7 @@ When uploading voice models via the API, files are automatically organized:
     "endpoint": "upload",
     "voice_name": "my_voice.wav",
     "voice_file_url": "https://example.com/audio.wav",
-    "reference_text": "This is the exact text spoken in the audio file."
+    "text_file_url": "https://example.com/reference_text.txt"
   }
 }
 ```

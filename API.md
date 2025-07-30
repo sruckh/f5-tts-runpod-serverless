@@ -60,7 +60,7 @@ Upload a voice model with its reference audio and text for high-quality voice cl
     "endpoint": "upload",
     "voice_name": "john_speaker.wav",
     "voice_file_url": "https://example.com/audio.wav",
-    "reference_text": "This is the exact text spoken in the reference audio file."
+    "text_file_url": "https://example.com/reference_text.txt"
   }
 }
 ```
@@ -71,9 +71,8 @@ Upload a voice model with its reference audio and text for high-quality voice cl
 - **Voice File** (one required):
   - `voice_file_url` (string): URL to download voice file (recommended)
   - `voice_file` (string): Base64-encoded voice file (deprecated)
-- **Reference Text** (one required):
-  - `reference_text` (string): Direct text transcription (recommended)
-  - `text_file_url` (string): URL to download text file
+- **Reference Text File** (one required):
+  - `text_file_url` (string): URL to download text file (recommended)
   - `text_file` (string): Base64-encoded text file (deprecated)
 
 **Response**
@@ -86,7 +85,7 @@ Upload a voice model with its reference audio and text for high-quality voice cl
 **Error Response**
 ```json
 {
-  "error": "Reference text is required. Provide reference_text, text_file_url, or text_file."
+  "error": "Reference text file is required. Provide text_file_url or text_file."
 }
 ```
 
@@ -237,7 +236,7 @@ Retrieve the generated audio and metadata for a completed job.
     "endpoint": "upload",
     "voice_name": "custom_speaker.wav",
     "voice_file_url": "https://example.com/speaker_sample.wav",
-    "reference_text": "This is a clear sample of the speaker's voice."
+    "text_file_url": "https://example.com/speaker_reference.txt"
   }
 }
 ```
