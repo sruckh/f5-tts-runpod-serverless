@@ -7,15 +7,23 @@ S3_BUCKET = os.environ.get("S3_BUCKET")
 AWS_ACCESS_KEY_ID = os.environ.get("AWS_ACCESS_KEY_ID")
 AWS_SECRET_ACCESS_KEY = os.environ.get("AWS_SECRET_ACCESS_KEY")
 AWS_REGION = os.environ.get("AWS_REGION", "us-east-1")
+AWS_ENDPOINT_URL = os.environ.get("AWS_ENDPOINT_URL")  # For S3-compatible services like Backblaze B2
 
 # Initialize S3 client with error handling
 try:
-    s3_client = boto3.client(
-        "s3",
-        aws_access_key_id=AWS_ACCESS_KEY_ID,
-        aws_secret_access_key=AWS_SECRET_ACCESS_KEY,
-        region_name=AWS_REGION,
-    )
+    client_config = {
+        "service_name": "s3",
+        "aws_access_key_id": AWS_ACCESS_KEY_ID,
+        "aws_secret_access_key": AWS_SECRET_ACCESS_KEY,
+        "region_name": AWS_REGION,
+    }
+    
+    # Add endpoint URL for S3-compatible services (Backblaze B2, DigitalOcean Spaces, etc.)
+    if AWS_ENDPOINT_URL:
+        client_config["endpoint_url"] = AWS_ENDPOINT_URL
+        print(f"🔗 Using custom S3 endpoint: {AWS_ENDPOINT_URL}")
+    
+    s3_client = boto3.client(**client_config)
     print(f"✅ S3 client initialized for bucket: {S3_BUCKET}")
 except Exception as e:
     print(f"❌ Failed to initialize S3 client: {e}")
@@ -43,7 +51,13 @@ def upload_to_s3(file_path, object_name):
             ExtraArgs={'ContentType': 'audio/wav'}  # Set content type for audio files
         )
         
-        url = f"https://{S3_BUCKET}.s3.{AWS_REGION}.amazonaws.com/{object_name}"
+        # Generate public URL - handle custom endpoints like Backblaze B2
+        if AWS_ENDPOINT_URL:
+            # For custom endpoints, use the endpoint URL directly
+            url = f"{AWS_ENDPOINT_URL.rstrip('/')}/{S3_BUCKET}/{object_name}"
+        else:
+            # Standard AWS S3 URL format
+            url = f"https://{S3_BUCKET}.s3.{AWS_REGION}.amazonaws.com/{object_name}"
         print(f"✅ Upload successful: {url}")
         return url
         

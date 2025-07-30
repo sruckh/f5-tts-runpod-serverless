@@ -44,6 +44,17 @@
 
 ---
 
+## 2025-07-30 21:00
+
+### Backblaze B2 S3-Compatible Storage Integration |TASK:TASK-2025-07-30-004|
+- **What**: Added complete Backblaze B2 support to F5-TTS RunPod deployment
+- **Why**: User experiencing S3 403 Forbidden errors - was using Backblaze B2, not AWS S3
+- **How**: Added AWS_ENDPOINT_URL environment variable support to s3_utils.py and updated boto3 client initialization
+- **Issues**: Original s3_utils.py only supported standard AWS S3 endpoints, missing custom endpoint support
+- **Result**: F5-TTS now supports all S3-compatible services (Backblaze B2, DigitalOcean Spaces, MinIO, etc.)
+
+---
+
 ## 2025-07-29 00:00
 
 ### Fix Dockerfile pip install path |TASK:TASK-2025-07-29-001|

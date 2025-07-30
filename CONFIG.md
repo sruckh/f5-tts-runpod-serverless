@@ -17,6 +17,11 @@ AWS_ACCESS_KEY_ID=AKIAIOSFODNN7EXAMPLE        # AWS access key with S3 permissio
 AWS_SECRET_ACCESS_KEY=wJalrXUtnFEMI/K7MDENG   # AWS secret key
 ```
 
+### S3-Compatible Services (Backblaze B2, DigitalOcean Spaces, etc.)
+```bash
+AWS_ENDPOINT_URL=https://s3.us-west-001.backblazeb2.com  # Custom S3 endpoint URL
+```
+
 ### Optional Configuration  
 ```bash
 AWS_REGION=us-east-1                          # AWS region (default: us-east-1)
@@ -76,6 +81,13 @@ CONTENT_TYPE = "audio/wav"                         # Audio file MIME type
 {
   "Version": "2012-10-17",
   "Statement": [
+    {
+      "Effect": "Allow",
+      "Action": [
+        "s3:ListBucket"
+      ],
+      "Resource": "arn:aws:s3:::your-bucket-name"
+    },
     {
       "Effect": "Allow",
       "Action": [

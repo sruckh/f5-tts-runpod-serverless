@@ -88,35 +88,67 @@ def install_flash_attn():
         print("📦 flash_attn not found, proceeding with installation...")
     
     try:
+        # Detect Python version
+        python_version = f"{sys.version_info.major}.{sys.version_info.minor}"
+        print(f"🐍 Detected Python version: {python_version}")
+        
         # Detect CUDA version
         if torch.cuda.is_available():
             cuda_version = torch.version.cuda
             print(f"🎯 Detected CUDA version: {cuda_version}")
             
-            # Map CUDA version to appropriate wheel
-            if cuda_version.startswith("12.4"):
-                wheel_url = "https://github.com/Dao-AILab/flash-attention/releases/download/v2.8.2/flash_attn-2.8.2+cu12torch2.4cxx11abiFALSE-cp310-cp310-linux_x86_64.whl"
-                print("⚡ Installing CUDA 12.4 compatible flash_attn...")
-            elif cuda_version.startswith("12.1"):
-                wheel_url = "https://github.com/Dao-AILab/flash-attention/releases/download/v2.8.2/flash_attn-2.8.2+cu121torch2.4cxx11abiFALSE-cp310-cp310-linux_x86_64.whl"
-                print("⚡ Installing CUDA 12.1 compatible flash_attn...")
-            elif cuda_version.startswith("11.8"):
-                wheel_url = "https://github.com/Dao-AILab/flash-attention/releases/download/v2.8.2/flash_attn-2.8.2+cu118torch2.4cxx11abiFALSE-cp310-cp310-linux_x86_64.whl"
-                print("⚡ Installing CUDA 11.8 compatible flash_attn...")
-            else:
-                print(f"⚠️  Unsupported CUDA version {cuda_version}, skipping flash_attn installation")
-                return False
+            # Map Python and CUDA version to appropriate wheel
+            wheel_url = None
             
-            # Install the appropriate wheel
+            if python_version == "3.11":
+                if cuda_version.startswith("12.4") or cuda_version.startswith("12"):
+                    wheel_url = "https://github.com/Dao-AILab/flash-attention/releases/download/v2.8.2/flash_attn-2.8.2+cu12torch2.6cxx11abiFALSE-cp311-cp311-linux_x86_64.whl"
+                    print("⚡ Installing CUDA 12.x + Python 3.11 compatible flash_attn...")
+                elif cuda_version.startswith("11.8"):
+                    wheel_url = "https://github.com/Dao-AILab/flash-attention/releases/download/v2.8.2/flash_attn-2.8.2+cu118torch2.6cxx11abiFALSE-cp311-cp311-linux_x86_64.whl"
+                    print("⚡ Installing CUDA 11.8 + Python 3.11 compatible flash_attn...")
+            elif python_version == "3.10":
+                if cuda_version.startswith("12.4") or cuda_version.startswith("12"):
+                    wheel_url = "https://github.com/Dao-AILab/flash-attention/releases/download/v2.8.2/flash_attn-2.8.2+cu12torch2.4cxx11abiFALSE-cp310-cp310-linux_x86_64.whl"
+                    print("⚡ Installing CUDA 12.x + Python 3.10 compatible flash_attn...")
+                elif cuda_version.startswith("11.8"):
+                    wheel_url = "https://github.com/Dao-AILab/flash-attention/releases/download/v2.8.2/flash_attn-2.8.2+cu118torch2.4cxx11abiFALSE-cp310-cp310-linux_x86_64.whl"
+                    print("⚡ Installing CUDA 11.8 + Python 3.10 compatible flash_attn...")
+            elif python_version == "3.9":
+                if cuda_version.startswith("12.4") or cuda_version.startswith("12"):
+                    wheel_url = "https://github.com/Dao-AILab/flash-attention/releases/download/v2.8.2/flash_attn-2.8.2+cu12torch2.4cxx11abiFALSE-cp39-cp39-linux_x86_64.whl"
+                    print("⚡ Installing CUDA 12.x + Python 3.9 compatible flash_attn...")
+                elif cuda_version.startswith("11.8"):
+                    wheel_url = "https://github.com/Dao-AILab/flash-attention/releases/download/v2.8.2/flash_attn-2.8.2+cu118torch2.4cxx11abiFALSE-cp39-cp39-linux_x86_64.whl"
+                    print("⚡ Installing CUDA 11.8 + Python 3.9 compatible flash_attn...")
+            
+            if wheel_url:
+                # Install the appropriate wheel
+                print(f"🔄 Installing wheel: {wheel_url}")
+                result = subprocess.run([
+                    sys.executable, "-m", "pip", "install", "--no-cache-dir", "--force-reinstall", wheel_url
+                ], capture_output=True, text=True, timeout=300)
+                
+                if result.returncode == 0:
+                    print("✅ flash_attn installation completed successfully")
+                    return True
+                else:
+                    print(f"❌ flash_attn wheel installation failed: {result.stderr}")
+                    print("🔄 Falling back to pip install from source...")
+            else:
+                print(f"⚠️  No pre-built wheel available for Python {python_version} + CUDA {cuda_version}")
+                print("🔄 Installing from source...")
+            
+            # Fallback to source installation
             result = subprocess.run([
-                sys.executable, "-m", "pip", "install", "--no-cache-dir", "--force-reinstall", wheel_url
-            ], capture_output=True, text=True, timeout=300)
+                sys.executable, "-m", "pip", "install", "--no-cache-dir", "flash-attn"
+            ], capture_output=True, text=True, timeout=600)
             
             if result.returncode == 0:
-                print("✅ flash_attn installation completed successfully")
+                print("✅ flash_attn installation from source completed successfully")
                 return True
             else:
-                print(f"❌ flash_attn installation failed: {result.stderr}")
+                print(f"❌ flash_attn installation from source failed: {result.stderr}")
                 return False
                 
         else:
