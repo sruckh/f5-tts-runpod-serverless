@@ -181,3 +181,31 @@
 - `runpod-handler.py:139-141` - Dynamic sample rate usage and audio processing
 
 ---
+
+## 2025-07-30 18:00
+
+### Flash Attention CUDA 12.4 Compatibility Enhancement |TASK:TASK-2025-07-30-003|
+- **What**: Added CUDA 12.4 compatible flash_attn wheel installation as final step in Dockerfile.runpod
+- **Why**: RunPod serverless environment uses CUDA 12.4.0 but base image may have incompatible flash_attn version causing performance issues
+- **How**: 
+  - **Dockerfile Enhancement**: Added direct flash_attn wheel installation at `Dockerfile.runpod:34-36`
+  - **Strategic Positioning**: Placed installation as final step before CMD to prevent dependency overrides
+  - **Force Reinstall**: Used `--force-reinstall` flag to ensure base image version gets replaced
+  - **Wheel Selection**: Used specific CUDA 12.4 + PyTorch 2.4 + Python 3.10 compatible wheel from GitHub releases
+  - **Container Optimization**: Direct wheel URL avoids requirements.txt bloat and ensures exact version match
+- **Issues**: 
+  - Base image `ghcr.io/swivid/f5-tts:main` CUDA version compatibility unknown
+  - flash_attn version mismatches can cause significant performance degradation
+  - Timing of installation critical to prevent other dependencies overriding
+- **Result**:
+  - **CUDA Compatibility**: Container now guaranteed to have CUDA 12.4 optimized flash_attn
+  - **Performance Optimization**: F5-TTS model should benefit from hardware-accelerated attention mechanisms
+  - **Deployment Ready**: Updated container ready for RunPod serverless deployment
+  - **Future-Proof**: Installation strategy prevents dependency conflicts
+
+### Key Files Modified
+- `Dockerfile.runpod:34-36` - Added flash_attn CUDA 12.4 wheel installation with --force-reinstall
+- `TASKS.md:10-38` - Updated current task tracking with flash_attn compatibility work
+- `JOURNAL.md` - Documented flash_attn enhancement implementation
+
+---

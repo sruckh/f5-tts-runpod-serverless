@@ -7,30 +7,31 @@
 **Progress**: 2/2 tasks completed
 
 ## Current Task
-**Task ID**: TASK-2025-07-30-002
-**Title**: F5TTS API Compatibility Fix
+**Task ID**: TASK-2025-07-30-003
+**Title**: Flash Attention CUDA 12.4 Compatibility Enhancement
 **Status**: COMPLETE
-**Started**: 2025-07-30 05:55
-**Dependencies**: None
+**Started**: 2025-07-30 18:00
+**Dependencies**: TASK-2025-07-30-002
 
 ### Task Context
-- **Previous Work**: User encountered F5TTS initialization error in RunPod environment
-- **Key Files**: `runpod-handler.py:50-56`, `runpod-handler.py:125-142`
-- **Environment**: RunPod serverless with F5TTS model, CUDA 12.4.0
-- **Next Steps**: TTS generation should work with corrected API parameters
+- **Previous Work**: F5TTS API compatibility fixed in TASK-2025-07-30-002
+- **Key Files**: `Dockerfile.runpod:34-36` - flash_attn wheel installation
+- **Environment**: RunPod serverless with CUDA 12.4.0 requires compatible flash_attn version
+- **Next Steps**: Deploy updated container to RunPod with CUDA 12.4 optimized flash attention
 
 ### Findings & Decisions
-- **FINDING-001**: F5TTS API changed - `model_type` parameter no longer exists
-- **FINDING-002**: Inference method parameters changed: `text` → `gen_text`, `ref_audio` → `ref_file`
-- **FINDING-003**: F5TTS.infer() now returns tuple (wav, sample_rate, spectrogram)
-- **DECISION-001**: Replace `model_type="F5-TTS"` with `model="F5TTS_v1_Base"`
-- **DECISION-002**: Add `use_ema=True` parameter for better audio quality
-- **DECISION-003**: Update inference parameters to match current F5TTS API
-- **DECISION-004**: Use dynamic sample rate instead of hardcoded 22050
+- **FINDING-001**: RunPod serverless logs showed CUDA 12.4.0 environment
+- **FINDING-002**: Base image ghcr.io/swivid/f5-tts:main may have incompatible flash_attn version
+- **FINDING-003**: flash_attn wheel must match exact CUDA version for optimal performance
+- **DECISION-001**: Install CUDA 12.4 specific flash_attn wheel as final Dockerfile step
+- **DECISION-002**: Use --force-reinstall to override any existing flash_attn installation
+- **DECISION-003**: Position installation after all other dependencies to prevent overrides
+- **DECISION-004**: Use direct wheel URL to avoid container image bloat from requirements.txt
 
 ### Task Chain
 1. ✅ Fix distutils error in Dockerfile (TASK-2025-07-29-003)
 2. ✅ F5-TTS RunPod Architecture Optimization (TASK-2025-07-29-004)
 3. ✅ F5-TTS API Enhancement & Production Features (TASK-2025-07-29-005)
 4. ✅ Voice Transcription Format Conversion for F5-TTS (TASK-2025-07-30-001)
-5. ✅ F5TTS API Compatibility Fix (TASK-2025-07-30-002) (CURRENT)
+5. ✅ F5TTS API Compatibility Fix (TASK-2025-07-30-002)
+6. ✅ Flash Attention CUDA 12.4 Compatibility Enhancement (TASK-2025-07-30-003) (CURRENT)
