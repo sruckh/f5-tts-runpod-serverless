@@ -209,3 +209,33 @@
 - `JOURNAL.md` - Documented flash_attn enhancement implementation
 
 ---
+
+## 2025-07-30 18:30
+
+### Flash Attention Installation Correction |TASK:TASK-2025-07-30-003|
+- **What**: Corrected flash_attn installation approach - moved from Dockerfile to startup script
+- **Why**: Initial implementation incorrectly placed flash_attn installation in container image instead of RunPod startup/warmup phase
+- **How**: 
+  - **Reverted Dockerfile**: Removed flash_attn installation from `Dockerfile.runpod` to keep container lean
+  - **Enhanced Startup Script**: Added `install_flash_attn()` function to `model_cache_init.py:78-128`
+  - **Dynamic Detection**: Implemented CUDA version detection with appropriate wheel selection
+  - **Multi-Version Support**: Added support for CUDA 12.4, 12.1, and 11.8 environments
+  - **Integrated Workflow**: Flash_attn installation now happens during container startup before model loading
+- **Issues**: 
+  - Original approach would have bloated container image unnecessarily
+  - Container-based installation doesn't leverage RunPod's dynamic environment detection
+  - Static installation in Dockerfile prevents adaptation to different CUDA environments
+- **Result**:
+  - **Lean Container**: Container image remains optimized without embedded flash_attn wheels
+  - **Dynamic Compatibility**: Automatically installs correct flash_attn version based on detected CUDA
+  - **Startup Integration**: Flash_attn installation integrated into existing model cache initialization
+  - **Multi-Environment**: Single container works across different RunPod CUDA environments
+  - **Proper Architecture**: Follows RunPod best practices for serverless optimization
+
+### Key Files Modified
+- `Dockerfile.runpod:34-35` - Removed flash_attn installation, restored lean container
+- `model_cache_init.py:78-128` - Added dynamic flash_attn installation with CUDA detection
+- `model_cache_init.py:140-141` - Integrated flash_attn setup into main initialization workflow
+- `TASKS.md:18-30` - Updated task context and decisions to reflect corrected approach
+
+---

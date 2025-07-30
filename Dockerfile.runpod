@@ -31,9 +31,5 @@ ENV TORCH_HOME=/runpod-volume/models/torch
 # Create symlink for backward compatibility  
 RUN ln -sf /runpod-volume/models /app/models || true
 
-# Install CUDA 12.4 compatible flash_attn as final step to ensure compatibility
-RUN pip install --no-cache-dir --force-reinstall \
-    https://github.com/Dao-AILab/flash-attention/releases/download/v2.8.2/flash_attn-2.8.2+cu12torch2.4cxx11abiFALSE-cp310-cp310-linux_x86_64.whl
-
 # Initialize model cache and start the serverless worker
 CMD ["sh", "-c", "python /app/model_cache_init.py && python -u /app/runpod-handler.py"]

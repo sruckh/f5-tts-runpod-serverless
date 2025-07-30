@@ -15,18 +15,19 @@
 
 ### Task Context
 - **Previous Work**: F5TTS API compatibility fixed in TASK-2025-07-30-002
-- **Key Files**: `Dockerfile.runpod:34-36` - flash_attn wheel installation
+- **Key Files**: `model_cache_init.py:78-128` - Dynamic flash_attn installation during startup
 - **Environment**: RunPod serverless with CUDA 12.4.0 requires compatible flash_attn version
-- **Next Steps**: Deploy updated container to RunPod with CUDA 12.4 optimized flash attention
+- **Next Steps**: Flash_attn will be installed dynamically during container startup based on detected CUDA version
 
 ### Findings & Decisions
 - **FINDING-001**: RunPod serverless logs showed CUDA 12.4.0 environment
 - **FINDING-002**: Base image ghcr.io/swivid/f5-tts:main may have incompatible flash_attn version
 - **FINDING-003**: flash_attn wheel must match exact CUDA version for optimal performance
-- **DECISION-001**: Install CUDA 12.4 specific flash_attn wheel as final Dockerfile step
-- **DECISION-002**: Use --force-reinstall to override any existing flash_attn installation
-- **DECISION-003**: Position installation after all other dependencies to prevent overrides
-- **DECISION-004**: Use direct wheel URL to avoid container image bloat from requirements.txt
+- **FINDING-004**: flash_attn installation should happen during startup, not in container image
+- **DECISION-001**: Move flash_attn installation from Dockerfile to model_cache_init.py startup script
+- **DECISION-002**: Implement dynamic CUDA version detection for appropriate wheel selection
+- **DECISION-003**: Support multiple CUDA versions (12.4, 12.1, 11.8) with version-specific wheels
+- **DECISION-004**: Keep container image lean by installing flash_attn during RunPod warmup phase
 
 ### Task Chain
 1. ✅ Fix distutils error in Dockerfile (TASK-2025-07-29-003)
