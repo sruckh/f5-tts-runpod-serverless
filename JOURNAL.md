@@ -151,3 +151,33 @@
 - `.gitignore` - Added Voices/ directory exclusion for privacy and repository size management
 
 ---
+
+## 2025-07-30 17:30
+
+### F5TTS API Compatibility Fix |TASK:TASK-2025-07-30-002|
+- **What**: Fixed F5TTS initialization error by updating deprecated API parameters and inference method calls
+- **Why**: User encountered F5TTS model initialization failure in RunPod environment due to outdated API usage
+- **How**: 
+  - **API Parameter Update**: Replaced deprecated `model_type="F5-TTS"` with `model="F5TTS_v1_Base"` in `runpod-handler.py:50`
+  - **Enhanced Parameters**: Added `use_ema=True` parameter for improved audio quality during initialization
+  - **Inference Method Fix**: Updated `F5TTS.infer()` parameters from `text/ref_audio` to `gen_text/ref_file` format
+  - **Return Value Handling**: Fixed inference return value unpacking to handle tuple (wav, sample_rate, spectrogram)
+  - **Dynamic Sample Rate**: Replaced hardcoded 22050 with dynamic sample rate from model inference
+  - **Error Handling**: Improved error messaging for API compatibility issues
+- **Issues**: 
+  - F5TTS library had undocumented API changes breaking existing implementations
+  - Return value structure changed from single array to tuple requiring code updates
+  - Parameter naming conventions changed without proper deprecation warnings
+- **Result**:
+  - **API Compatibility**: F5TTS model now initializes successfully with correct parameters
+  - **Inference Fixed**: TTS generation works with updated inference method calls
+  - **Audio Quality**: Dynamic sample rate and EMA usage improve output quality
+  - **Error Prevention**: Better error handling prevents similar API compatibility issues
+  - **Future-Proof**: Code now aligned with current F5TTS API standards
+
+### Key Files Modified
+- `runpod-handler.py:50-56` - F5TTS model initialization with correct parameters
+- `runpod-handler.py:125-137` - Updated inference method parameters and return handling
+- `runpod-handler.py:139-141` - Dynamic sample rate usage and audio processing
+
+---

@@ -7,28 +7,30 @@
 **Progress**: 2/2 tasks completed
 
 ## Current Task
-**Task ID**: TASK-2025-07-30-001
-**Title**: Voice Transcription Format Conversion for F5-TTS
+**Task ID**: TASK-2025-07-30-002
+**Title**: F5TTS API Compatibility Fix
 **Status**: COMPLETE
-**Started**: 2025-07-30 12:00
+**Started**: 2025-07-30 05:55
 **Dependencies**: None
 
 ### Task Context
-- **Previous Work**: User provided new Voices directory with 5 voice models and transcriptions in SRT/CSV format
-- **Key Files**: `Voices/` directory, `convert_transcriptions.py`, `.gitignore`
-- **Environment**: F5-TTS requires plain text reference files matching audio for voice cloning
-- **Next Steps**: Voice models ready for F5-TTS training and deployment
+- **Previous Work**: User encountered F5TTS initialization error in RunPod environment
+- **Key Files**: `runpod-handler.py:50-56`, `runpod-handler.py:125-142`
+- **Environment**: RunPod serverless with F5TTS model, CUDA 12.4.0
+- **Next Steps**: TTS generation should work with corrected API parameters
 
 ### Findings & Decisions
-- **FINDING-001**: F5-TTS requires simple .txt files containing exact transcription text for reference
-- **FINDING-002**: SRT and CSV formats needed parsing to extract clean text content
-- **FINDING-003**: Voice files contain personal audio data and should be excluded from git repository
-- **DECISION-001**: Create conversion script to automatically parse transcriptions → convert_transcriptions.py
-- **DECISION-002**: Add Voices/ directory to .gitignore for privacy and repository size management
-- **DECISION-003**: Generate matching .txt files for each voice model using SRT as primary source
+- **FINDING-001**: F5TTS API changed - `model_type` parameter no longer exists
+- **FINDING-002**: Inference method parameters changed: `text` → `gen_text`, `ref_audio` → `ref_file`
+- **FINDING-003**: F5TTS.infer() now returns tuple (wav, sample_rate, spectrogram)
+- **DECISION-001**: Replace `model_type="F5-TTS"` with `model="F5TTS_v1_Base"`
+- **DECISION-002**: Add `use_ema=True` parameter for better audio quality
+- **DECISION-003**: Update inference parameters to match current F5TTS API
+- **DECISION-004**: Use dynamic sample rate instead of hardcoded 22050
 
 ### Task Chain
 1. ✅ Fix distutils error in Dockerfile (TASK-2025-07-29-003)
 2. ✅ F5-TTS RunPod Architecture Optimization (TASK-2025-07-29-004)
 3. ✅ F5-TTS API Enhancement & Production Features (TASK-2025-07-29-005)
-4. ✅ Voice Transcription Format Conversion for F5-TTS (TASK-2025-07-30-001) (CURRENT)
+4. ✅ Voice Transcription Format Conversion for F5-TTS (TASK-2025-07-30-001)
+5. ✅ F5TTS API Compatibility Fix (TASK-2025-07-30-002) (CURRENT)

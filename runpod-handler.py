@@ -48,10 +48,11 @@ def load_model():
         
         # Initialize with default model - the container has models pre-cached
         model = F5TTS(
-            model_type="F5-TTS", 
-            ckpt_file="",  # Use default model
-            vocab_file="", # Use default vocab
-            device=device
+            model="F5TTS_v1_Base",  # Use default F5TTS v1 base model
+            ckpt_file="",           # Use default checkpoint
+            vocab_file="",          # Use default vocab
+            device=device,
+            use_ema=True            # Use Exponential Moving Average for better quality
         )
         
         print(f"✅ F5-TTS model loaded successfully on {device}")
@@ -120,10 +121,10 @@ def process_tts_job(job_id, text, speed, return_word_timings, local_voice):
         with tempfile.NamedTemporaryFile(suffix=".wav", delete=False) as temp_audio:
             temp_files.append(temp_audio.name)
             
-            # Use the model's infer method with reference text if available
+            # Use the model's infer method with correct parameter names
             infer_params = {
-                "text": text,
-                "ref_audio": voice_path,
+                "ref_file": voice_path,     # Reference audio file path
+                "gen_text": text,           # Text to generate
                 "speed": speed
             }
             
@@ -132,11 +133,12 @@ def process_tts_job(job_id, text, speed, return_word_timings, local_voice):
                 infer_params["ref_text"] = ref_text
                 print(f"🎯 Using reference text for better voice cloning")
             
-            audio_data = current_model.infer(**infer_params)
+            # F5TTS infer returns (wav, sample_rate, spectrogram)
+            audio_data, sample_rate, _ = current_model.infer(**infer_params)
             
-            # Write audio file
-            sf.write(temp_audio.name, audio_data, 22050)
-            total_duration = len(audio_data) / 22050
+            # Write audio file with returned sample rate
+            sf.write(temp_audio.name, audio_data, sample_rate)
+            total_duration = len(audio_data) / sample_rate
             print(f"✅ Audio generated: {total_duration:.2f}s")
 
             # Calculate word timings if requested
