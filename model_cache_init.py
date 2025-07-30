@@ -76,8 +76,8 @@ def verify_cache_setup():
     return True
 
 def install_flash_attn():
-    """Install CUDA-compatible flash_attn during startup based on detected CUDA version."""
-    print("🔍 Checking flash_attn compatibility...")
+    """Install CUDA-compatible flash_attn during startup - MUST happen before model loading."""
+    print("🔍 Installing flash_attn before model downloads to prevent disk space issues...")
     
     try:
         # Check if flash_attn is already installed and working
@@ -88,96 +88,180 @@ def install_flash_attn():
         print("📦 flash_attn not found, proceeding with installation...")
     
     try:
-        # Detect Python version
-        python_version = f"{sys.version_info.major}.{sys.version_info.minor}"
-        print(f"🐍 Detected Python version: {python_version}")
+        # Use the specific wheel that works for Python 3.11 + CUDA 12.x (RunPod environment)
+        wheel_url = "https://github.com/Dao-AILab/flash-attention/releases/download/v2.8.2/flash_attn-2.8.2+cu12torch2.6cxx11abiFALSE-cp311-cp311-linux_x86_64.whl"
         
-        # Detect CUDA version
-        if torch.cuda.is_available():
-            cuda_version = torch.version.cuda
-            print(f"🎯 Detected CUDA version: {cuda_version}")
-            
-            # Map Python and CUDA version to appropriate wheel
-            wheel_url = None
-            
-            if python_version == "3.11":
-                if cuda_version.startswith("12.4") or cuda_version.startswith("12"):
-                    wheel_url = "https://github.com/Dao-AILab/flash-attention/releases/download/v2.8.2/flash_attn-2.8.2+cu12torch2.6cxx11abiFALSE-cp311-cp311-linux_x86_64.whl"
-                    print("⚡ Installing CUDA 12.x + Python 3.11 compatible flash_attn...")
-                elif cuda_version.startswith("11.8"):
-                    wheel_url = "https://github.com/Dao-AILab/flash-attention/releases/download/v2.8.2/flash_attn-2.8.2+cu118torch2.6cxx11abiFALSE-cp311-cp311-linux_x86_64.whl"
-                    print("⚡ Installing CUDA 11.8 + Python 3.11 compatible flash_attn...")
-            elif python_version == "3.10":
-                if cuda_version.startswith("12.4") or cuda_version.startswith("12"):
-                    wheel_url = "https://github.com/Dao-AILab/flash-attention/releases/download/v2.8.2/flash_attn-2.8.2+cu12torch2.4cxx11abiFALSE-cp310-cp310-linux_x86_64.whl"
-                    print("⚡ Installing CUDA 12.x + Python 3.10 compatible flash_attn...")
-                elif cuda_version.startswith("11.8"):
-                    wheel_url = "https://github.com/Dao-AILab/flash-attention/releases/download/v2.8.2/flash_attn-2.8.2+cu118torch2.4cxx11abiFALSE-cp310-cp310-linux_x86_64.whl"
-                    print("⚡ Installing CUDA 11.8 + Python 3.10 compatible flash_attn...")
-            elif python_version == "3.9":
-                if cuda_version.startswith("12.4") or cuda_version.startswith("12"):
-                    wheel_url = "https://github.com/Dao-AILab/flash-attention/releases/download/v2.8.2/flash_attn-2.8.2+cu12torch2.4cxx11abiFALSE-cp39-cp39-linux_x86_64.whl"
-                    print("⚡ Installing CUDA 12.x + Python 3.9 compatible flash_attn...")
-                elif cuda_version.startswith("11.8"):
-                    wheel_url = "https://github.com/Dao-AILab/flash-attention/releases/download/v2.8.2/flash_attn-2.8.2+cu118torch2.4cxx11abiFALSE-cp39-cp39-linux_x86_64.whl"
-                    print("⚡ Installing CUDA 11.8 + Python 3.9 compatible flash_attn...")
-            
-            if wheel_url:
-                # Install the appropriate wheel
-                print(f"🔄 Installing wheel: {wheel_url}")
-                result = subprocess.run([
-                    sys.executable, "-m", "pip", "install", "--no-cache-dir", "--force-reinstall", wheel_url
-                ], capture_output=True, text=True, timeout=300)
-                
-                if result.returncode == 0:
-                    print("✅ flash_attn installation completed successfully")
-                    return True
-                else:
-                    print(f"❌ flash_attn wheel installation failed: {result.stderr}")
-                    print("🔄 Falling back to pip install from source...")
-            else:
-                print(f"⚠️  No pre-built wheel available for Python {python_version} + CUDA {cuda_version}")
-                print("🔄 Installing from source...")
-            
-            # Fallback to source installation
-            result = subprocess.run([
-                sys.executable, "-m", "pip", "install", "--no-cache-dir", "flash-attn"
-            ], capture_output=True, text=True, timeout=600)
-            
-            if result.returncode == 0:
-                print("✅ flash_attn installation from source completed successfully")
+        print("⚡ Installing CUDA 12.x + Python 3.11 compatible flash_attn...")
+        print(f"🔄 Installing wheel: {wheel_url}")
+        
+        # Install with force to prevent any conflicts
+        result = subprocess.run([
+            sys.executable, "-m", "pip", "install", 
+            "--no-cache-dir", 
+            "--force-reinstall", 
+            "--no-deps",  # Skip dependencies to avoid conflicts
+            wheel_url
+        ], capture_output=True, text=True, timeout=300)
+        
+        if result.returncode == 0:
+            print("✅ flash_attn installation completed successfully")
+            # Verify the installation works
+            try:
+                import flash_attn
+                print("✅ flash_attn import verification successful")
                 return True
-            else:
-                print(f"❌ flash_attn installation from source failed: {result.stderr}")
+            except ImportError as e:
+                print(f"❌ flash_attn installed but import failed: {e}")
                 return False
-                
         else:
-            print("⚠️  CUDA not available, skipping flash_attn installation")
+            print(f"❌ flash_attn wheel installation failed: {result.stderr}")
             return False
             
     except Exception as e:
         print(f"❌ Error during flash_attn installation: {e}")
         return False
 
+def sync_models_from_s3_cache():
+    """
+    Sync F5-TTS models from S3 to local cache for faster cold starts.
+    This dramatically reduces cold start time by avoiding HuggingFace downloads.
+    """
+    try:
+        # Import S3 sync function
+        from s3_utils import sync_models_from_s3
+        
+        # Determine local cache directory (prefer persistent volume)
+        local_cache_dirs = [
+            "/runpod-volume/models",  # RunPod persistent volume (preferred)
+            "/tmp/models",            # Temporary fallback
+            "/app/models"             # Container fallback
+        ]
+        
+        local_models_dir = None
+        for cache_dir in local_cache_dirs:
+            try:
+                os.makedirs(cache_dir, exist_ok=True)
+                # Test write access
+                test_file = os.path.join(cache_dir, ".write_test")
+                with open(test_file, 'w') as f:
+                    f.write("test")
+                os.remove(test_file)
+                local_models_dir = cache_dir
+                print(f"📁 Using local cache directory: {local_models_dir}")
+                break
+            except (OSError, PermissionError):
+                print(f"⚠️ Cannot write to {cache_dir}, trying next option")
+                continue
+        
+        if not local_models_dir:
+            print("❌ No writable cache directory found")
+            return False
+        
+        # Sync models from S3
+        print("🔄 Starting S3 model sync for faster cold starts...")
+        sync_success = sync_models_from_s3(
+            local_models_dir=local_models_dir, 
+            s3_models_prefix="models/"
+        )
+        
+        if sync_success:
+            # Update environment variables to point to synced models
+            os.environ["HF_HOME"] = local_models_dir
+            os.environ["TRANSFORMERS_CACHE"] = local_models_dir
+            os.environ["HF_HUB_CACHE"] = os.path.join(local_models_dir, "hub")
+            os.environ["TORCH_HOME"] = os.path.join(local_models_dir, "torch")
+            
+            print(f"✅ S3 model sync completed - models cached in {local_models_dir}")
+            print(f"⚡ Cold start optimization: Models will load from local cache")
+            return True
+        else:
+            print("⚠️ S3 model sync failed - will download from HuggingFace on first use")
+            return False
+            
+    except ImportError:
+        print("❌ S3 utils not available - skipping S3 model sync")
+        return False
+    except Exception as e:
+        print(f"❌ S3 model sync error: {e}")
+        return False
+
+
+def upload_models_to_s3_cache():
+    """
+    Upload locally cached models to S3 for future cold start optimization.
+    This should be called after models are downloaded/cached locally.
+    """
+    try:
+        # Import S3 upload function
+        from s3_utils import upload_models_to_s3
+        
+        # Find local model directories with content
+        local_cache_dirs = [
+            os.environ.get("HF_HOME", "/runpod-volume/models"),
+            os.environ.get("TRANSFORMERS_CACHE", "/runpod-volume/models"),
+            "/app/models",
+            "/tmp/models"
+        ]
+        
+        for local_models_dir in local_cache_dirs:
+            if os.path.exists(local_models_dir) and os.listdir(local_models_dir):
+                print(f"📤 Uploading models from {local_models_dir} to S3...")
+                upload_success = upload_models_to_s3(
+                    local_models_dir=local_models_dir,
+                    s3_models_prefix="models/"
+                )
+                
+                if upload_success:
+                    print(f"✅ Models uploaded to S3 - future cold starts will be faster")
+                    return True
+                else:
+                    print(f"⚠️ Model upload failed from {local_models_dir}")
+        
+        print("⚠️ No models found to upload to S3")
+        return False
+        
+    except ImportError:
+        print("❌ S3 utils not available - skipping S3 model upload")
+        return False
+    except Exception as e:
+        print(f"❌ S3 model upload error: {e}")
+        return False
+
 def main():
-    """Initialize model cache setup."""
+    """Initialize model cache setup with S3 sync for faster cold starts."""
     print("🚀 Initializing F5-TTS model cache...")
     
-    # Ensure directories exist
-    ensure_cache_directories()
-    
-    # Migrate existing models if any
-    migrate_existing_models()
-    
-    # Install CUDA-compatible flash_attn during startup
+    # CRITICAL: Install flash_attn FIRST before any model downloads/caching
+    # This prevents disk space issues when models consume space before flash_attn installs
+    print("🔥 Step 1: Installing flash_attn before model operations...")
     flash_attn_success = install_flash_attn()
     
-    # Verify cache setup
+    if not flash_attn_success:
+        print("⚠️ flash_attn installation failed - continuing but performance may be degraded")
+    
+    # Step 2: Ensure directories exist
+    print("📁 Step 2: Setting up cache directories...")
+    ensure_cache_directories()
+    
+    # Step 3: Sync models from S3 for faster cold starts (after flash_attn is ready)
+    print("☁️ Step 3: Syncing models from S3...")
+    s3_sync_success = sync_models_from_s3_cache()
+    
+    # Step 4: Migrate existing models if any (fallback)
+    print("🔄 Step 4: Migrating existing models...")
+    migrate_existing_models()
+    
+    # Step 5: Verify cache setup
+    print("✅ Step 5: Verifying cache setup...")
     cache_success = verify_cache_setup()
     
     if cache_success:
         if flash_attn_success:
             print("✅ Model cache and flash_attn initialization completed successfully")
+            if s3_sync_success:
+                print("⚡ S3 model cache ready - cold starts will be fast")
+            else:
+                print("📦 Models will be cached to S3 after first download")
         else:
             print("⚠️  Model cache ready, but flash_attn installation had issues")
         return 0

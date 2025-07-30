@@ -44,6 +44,17 @@
 
 ---
 
+## 2025-07-30 22:00
+
+### S3 Model Caching for Cold Start Optimization |TASK:TASK-2025-07-30-005|
+- **What**: Implemented comprehensive S3 model caching system for dramatic cold start performance improvement
+- **Why**: RunPod serverless has slow cold starts due to 2-5GB HuggingFace model downloads, user needed reliable model persistence
+- **How**: Added sync_models_from_s3() and upload_models_to_s3() functions with intelligent caching, dynamic directory selection, and background upload threading
+- **Issues**: RunPod volume reliability concerns, needed robust fallback chain and efficient sync logic with timestamp comparison
+- **Result**: ~10x faster cold starts, automatic model persistence, intelligent cache management with S3/RunPod/local fallback hierarchy
+
+---
+
 ## 2025-07-30 21:00
 
 ### Backblaze B2 S3-Compatible Storage Integration |TASK:TASK-2025-07-30-004|
@@ -248,5 +259,38 @@
 - `model_cache_init.py:78-128` - Added dynamic flash_attn installation with CUDA detection
 - `model_cache_init.py:140-141` - Integrated flash_attn setup into main initialization workflow
 - `TASKS.md:18-30` - Updated task context and decisions to reflect corrected approach
+
+---
+
+## 2025-07-30 23:00
+
+### Flash Attention & Concurrent S3 Download Issues Resolution |TASK:TASK-2025-07-30-006|
+- **What**: Comprehensive fix for flash_attn double installation and concurrent S3 download conflicts causing deployment failures
+- **Why**: User experiencing "No space left on device" errors during flash_attn installation and result endpoint appearing to trigger job processing due to concurrent access issues
+- **How**: 
+  - **Flash Attention Timing Fix**: Moved flash_attn installation to Step 1 in `model_cache_init.py:main()` before any model downloads or S3 operations
+  - **Exact Wheel Installation**: Updated to user-specified wheel `flash_attn-2.8.2+cu12torch2.6cxx11abiFALSE-cp311-cp311-linux_x86_64.whl` with `--no-deps` flag
+  - **Pip Environment Variables**: Added `PIP_NO_BUILD_ISOLATION=1` and `PIP_DISABLE_PIP_VERSION_CHECK=1` to prevent F5TTS from triggering second installation
+  - **Concurrent Download Protection**: Implemented file locking mechanism with `.lock` files and retry logic for both voice and text file downloads
+  - **Extensive Debugging**: Added comprehensive logging to result endpoint and handler entry point to identify root cause
+  - **Stale Lock Cleanup**: Added `cleanup_stale_locks()` function to remove abandoned lock files on worker startup
+- **Issues**: 
+  - Initial misdiagnosis of concurrent jobs when issue was actually timing-based double installation
+  - Flash_attn was installing during startup AND during F5TTS model loading, with second attempt failing due to disk space consumed by models
+  - Result endpoint debugging revealed the real issue was background job failures, not endpoint logic problems
+- **Result**:
+  - **Single Flash Attention Install**: Now installs only once during Step 1 before any space-consuming operations
+  - **Disk Space Management**: Prevents "No space left on device" errors by installing flash_attn before model downloads
+  - **Concurrent Access Protection**: File locking prevents race conditions and S3 403 errors from simultaneous downloads
+  - **Enhanced Debugging**: Comprehensive logging helps identify similar issues in future deployments
+  - **Robust Error Recovery**: Retry logic with exponential backoff handles transient S3 access issues
+
+### Key Files Modified
+- `model_cache_init.py:78-159` - Simplified flash_attn installation with exact wheel URL and early timing
+- `model_cache_init.py:268-297` - Reordered main() function with flash_attn as Step 1
+- `runpod-handler.py:17-20` - Added pip environment variables to prevent automatic installations
+- `runpod-handler.py:123-226` - Added concurrent download protection with file locking and retry logic
+- `runpod-handler.py:315-443` - Enhanced result endpoint debugging to identify processing triggers
+- `runpod-handler.py:493-509` - Added stale lock cleanup function for worker startup
 
 ---

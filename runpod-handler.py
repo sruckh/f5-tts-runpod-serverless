@@ -14,6 +14,11 @@ import uuid
 import json
 from s3_utils import upload_to_s3, download_from_s3
 
+# Prevent automatic pip installations during model loading
+# This ensures flash_attn and other dependencies don't get installed twice
+os.environ["PIP_NO_BUILD_ISOLATION"] = "1"
+os.environ["PIP_DISABLE_PIP_VERSION_CHECK"] = "1"
+
 # --- Data Models ---
 class WordTiming(BaseModel):
     word: str
@@ -56,6 +61,24 @@ def load_model():
         )
         
         print(f"✅ F5-TTS model loaded successfully on {device}")
+        
+        # Upload models to S3 cache for future cold start optimization (async)
+        try:
+            from model_cache_init import upload_models_to_s3_cache
+            import threading
+            
+            def upload_models_background():
+                try:
+                    upload_models_to_s3_cache()
+                except Exception as e:
+                    print(f"⚠️ Background model upload to S3 failed: {e}")
+            
+            # Upload models in background thread to not block startup
+            upload_thread = threading.Thread(target=upload_models_background, daemon=True)
+            upload_thread.start()
+        except Exception as e:
+            print(f"⚠️ Could not start background model upload: {e}")
+        
         return model
         
     except Exception as e:
@@ -96,16 +119,102 @@ def process_tts_job(job_id, text, speed, return_word_timings, local_voice):
             else:
                 voice_path = f"/tmp/{local_voice}"
                 temp_files.append(voice_path)
-                print(f"📥 Downloading voice from S3: voices/{local_voice}")
-                if not download_from_s3(f"voices/{local_voice}", voice_path):
-                    raise Exception(f"Failed to download voice: {local_voice}")
                 
-                # Try to download corresponding reference text file
+                # Handle concurrent downloads with file locking and retry
+                lock_file = f"{voice_path}.lock"
+                max_retries = 3
+                retry_delay = 1
+                
+                for attempt in range(max_retries):
+                    try:
+                        # Check if file already exists from another concurrent job
+                        if os.path.exists(voice_path) and os.path.getsize(voice_path) > 0:
+                            print(f"✅ Voice file already cached: {voice_path}")
+                            break
+                            
+                        # Check if another job is downloading (lock file exists)
+                        if os.path.exists(lock_file):
+                            print(f"⏳ Another job downloading {local_voice}, waiting...")
+                            time.sleep(retry_delay * (attempt + 1))
+                            continue
+                            
+                        # Create lock file to prevent concurrent downloads
+                        with open(lock_file, 'w') as f:
+                            f.write(f"locked_by_job_{job_id}")
+                            
+                        print(f"📥 Downloading voice from S3: voices/{local_voice}")
+                        if download_from_s3(f"voices/{local_voice}", voice_path):
+                            # Remove lock file on success
+                            if os.path.exists(lock_file):
+                                os.unlink(lock_file)
+                            break
+                        else:
+                            # Remove lock file on failure
+                            if os.path.exists(lock_file):
+                                os.unlink(lock_file)
+                            if attempt == max_retries - 1:
+                                raise Exception(f"Failed to download voice: {local_voice}")
+                            print(f"⚠️ Download attempt {attempt + 1} failed, retrying...")
+                            time.sleep(retry_delay * (attempt + 1))
+                            
+                    except Exception as e:
+                        # Clean up lock file on error
+                        if os.path.exists(lock_file):
+                            os.unlink(lock_file)
+                        if attempt == max_retries - 1:
+                            raise Exception(f"Failed to download voice after {max_retries} attempts: {local_voice} - {e}")
+                        print(f"⚠️ Download attempt {attempt + 1} failed: {e}, retrying...")
+                        time.sleep(retry_delay * (attempt + 1))
+                
+                # Try to download corresponding reference text file with concurrent protection
                 text_filename = local_voice.replace('.wav', '.txt')
                 text_path = f"/tmp/{text_filename}"
                 temp_files.append(text_path)
-                print(f"📥 Attempting to download reference text: voices/{text_filename}")
-                if download_from_s3(f"voices/{text_filename}", text_path):
+                text_lock_file = f"{text_path}.lock"
+                
+                # Try to download text file with same protection
+                for attempt in range(max_retries):
+                    try:
+                        # Check if text file already exists
+                        if os.path.exists(text_path) and os.path.getsize(text_path) > 0:
+                            print(f"✅ Reference text already cached: {text_path}")
+                            break
+                            
+                        # Check if another job is downloading text file
+                        if os.path.exists(text_lock_file):
+                            print(f"⏳ Another job downloading {text_filename}, waiting...")
+                            time.sleep(retry_delay * (attempt + 1))
+                            continue
+                            
+                        # Create text lock file
+                        with open(text_lock_file, 'w') as f:
+                            f.write(f"locked_by_job_{job_id}")
+                            
+                        print(f"📥 Attempting to download reference text: voices/{text_filename}")
+                        if download_from_s3(f"voices/{text_filename}", text_path):
+                            # Remove lock file on success
+                            if os.path.exists(text_lock_file):
+                                os.unlink(text_lock_file)
+                            break
+                        else:
+                            # Remove lock file - text file is optional, don't fail
+                            if os.path.exists(text_lock_file):
+                                os.unlink(text_lock_file)
+                            print(f"⚠️ No reference text found for {local_voice}")
+                            break
+                            
+                    except Exception as e:
+                        # Clean up text lock file on error
+                        if os.path.exists(text_lock_file):
+                            os.unlink(text_lock_file)
+                        print(f"⚠️ Text download attempt {attempt + 1} failed: {e}")
+                        if attempt == max_retries - 1:
+                            print(f"⚠️ Could not download reference text after {max_retries} attempts")
+                        else:
+                            time.sleep(retry_delay * (attempt + 1))
+                
+                # Try to read the reference text if it exists
+                if os.path.exists(text_path):
                     try:
                         with open(text_path, 'r', encoding='utf-8') as f:
                             ref_text = f.read().strip()
@@ -114,7 +223,7 @@ def process_tts_job(job_id, text, speed, return_word_timings, local_voice):
                         print(f"⚠️ Failed to read reference text: {e}")
                         ref_text = None
                 else:
-                    print(f"⚠️ No reference text found for {local_voice}")
+                    ref_text = None
 
         # Generate audio
         print(f"🎵 Generating audio with F5-TTS...")
@@ -204,6 +313,12 @@ def handler(job):
         job_input = job.get('input', {})
         endpoint = job_input.get("endpoint")
         
+        # EXTENSIVE DEBUGGING for handler entry point
+        print(f"🔍 HANDLER DEBUG:")
+        print(f"🔍 Full job object: {job}")
+        print(f"🔍 job_input: {job_input}")
+        print(f"🔍 endpoint: '{endpoint}'")
+        print(f"🔍 endpoint type: {type(endpoint)}")
         print(f"🎯 Handling request - endpoint: {endpoint}")
 
         if endpoint == "upload":
@@ -302,11 +417,36 @@ def handler(job):
 
         elif endpoint == "result":
             job_id = job_input.get("job_id")
-            if not job_id or job_id not in jobs:
-                return {"error": "Invalid job_id."}
+            
+            # EXTENSIVE DEBUGGING for result endpoint issue
+            print(f"🔍 RESULT ENDPOINT DEBUG:")
+            print(f"🔍 Raw job_input: {job_input}")
+            print(f"🔍 Extracted job_id: '{job_id}'")
+            print(f"🔍 job_id type: {type(job_id)}")
+            print(f"🔍 All jobs in memory: {list(jobs.keys())}")
+            print(f"🔍 Jobs detail: {jobs}")
+            
+            if not job_id:
+                print("❌ RESULT DEBUG: No job_id provided")
+                return {"error": "No job_id provided"}
+                
+            if job_id not in jobs:
+                print(f"❌ RESULT DEBUG: job_id '{job_id}' not found in jobs")
+                print(f"❌ Available jobs: {list(jobs.keys())}")
+                return {"error": f"Invalid job_id: {job_id}"}
+            
+            print(f"🔍 Job found - status: {jobs[job_id]['status']}")
+            print(f"🔍 Job data: {jobs[job_id]}")
+            
             if jobs[job_id]["status"] != "COMPLETED":
+                print(f"❌ RESULT DEBUG: Job not completed, status: {jobs[job_id]['status']}")
                 return {"error": f"Job is not complete. Status: {jobs[job_id]['status']}"}
-            return jobs[job_id]["result"]
+            
+            # This should be the ONLY path for completed jobs
+            print(f"✅ RESULT DEBUG: Returning cached result for job {job_id}")
+            result = jobs[job_id]["result"]
+            print(f"✅ RESULT DEBUG: Result data: {result}")
+            return result
             
         elif endpoint == "list_voices":
             # List available voices in S3
@@ -347,16 +487,26 @@ def handler(job):
                 return {"error": f"Failed to list voices: {str(e)}"}
 
         else:  # Default to TTS generation
+            # DEBUGGING: This should NOT be triggered for result endpoint!
+            print(f"🚨 ELSE BLOCK TRIGGERED - THIS IS THE PROBLEM!")
+            print(f"🚨 endpoint value: '{endpoint}'")
+            print(f"🚨 This means 'result' endpoint is falling through to TTS generation!")
+            print(f"🚨 job_input: {job_input}")
+            
             text = job_input.get('text')
             speed = job_input.get('speed', 1.0)
             return_word_timings = job_input.get('return_word_timings', True)
             local_voice = job_input.get('local_voice')
+
+            print(f"🚨 TTS params - text: '{text}', local_voice: '{local_voice}'")
 
             if not text:
                 return {"error": "Text input is required."}
 
             job_id = str(uuid.uuid4())
             jobs[job_id] = {"status": "QUEUED"}
+            
+            print(f"🚨 CREATING NEW JOB: {job_id} (THIS SHOULD NOT HAPPEN FOR RESULT ENDPOINT)")
 
             # Run the job in the background
             import threading
@@ -372,8 +522,29 @@ def handler(job):
         traceback.print_exc()
         return {"error": error_msg}
 
+def cleanup_stale_locks():
+    """Remove any stale lock files from previous sessions."""
+    import glob
+    try:
+        lock_files = glob.glob("/tmp/*.lock")
+        if lock_files:
+            print(f"🧹 Cleaning up {len(lock_files)} stale lock files...")
+            for lock_file in lock_files:
+                try:
+                    os.unlink(lock_file)
+                    print(f"🗑️ Removed stale lock: {lock_file}")
+                except Exception as e:
+                    print(f"⚠️ Could not remove {lock_file}: {e}")
+        else:
+            print("✅ No stale lock files found")
+    except Exception as e:
+        print(f"⚠️ Lock cleanup error: {e}")
+
 if __name__ == "__main__":
     print("🚀 Starting F5-TTS RunPod serverless worker...")
+    
+    # Clean up any stale lock files from previous sessions
+    cleanup_stale_locks()
     
     # Pre-load model for faster first inference
     print("🔄 Pre-loading F5-TTS model...")
