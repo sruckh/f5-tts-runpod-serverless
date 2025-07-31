@@ -35,27 +35,21 @@ model = None
 device = "cuda" if torch.cuda.is_available() else "cpu"
 
 def load_model():
-    """Loads the F5-TTS model with optimized caching."""
+    """Loads the F5-TTS model using the correct official API."""
     global model
     if model is not None:
         return model
     
     try:
-        print(f"Loading F5-TTS model on {device}...")
+        print(f"Loading F5-TTS model...")
         
-        # Use the official F5-TTS API that comes with the container
+        # Use the correct F5-TTS API from the official implementation
         from f5_tts.api import F5TTS
         
-        # Initialize with default model - the container has models pre-cached
-        model = F5TTS(
-            model="F5TTS_v1_Base",  # Use default F5TTS v1 base model
-            ckpt_file="",           # Use default checkpoint
-            vocab_file="",          # Use default vocab
-            device=device,
-            use_ema=True            # Use Exponential Moving Average for better quality
-        )
+        # Initialize F5TTS with no parameters (uses defaults)
+        model = F5TTS()
         
-        print(f"✅ F5-TTS model loaded successfully on {device}")
+        print(f"✅ F5-TTS model loaded successfully")
         return model
         
     except Exception as e:
@@ -143,88 +137,52 @@ def process_tts_job(job_id, text, speed, return_word_timings, local_voice):
             except Exception as e:
                 print(f"⚠️ Could not preprocess reference audio: {e}")
 
-        # Generate audio
+        # Generate audio using correct F5-TTS API
         print(f"🎵 Generating audio with F5-TTS...")
         with tempfile.NamedTemporaryFile(suffix=".wav", delete=False) as temp_audio:
             temp_files.append(temp_audio.name)
             
-            # Use the model's inference method with version-compatible parameter handling
-            # Try different parameter combinations to handle F5-TTS API version differences
-            
-            # Attempt 1: Use ref_file (older F5-TTS versions)
-            infer_params = {
-                "ref_file": voice_path,     # Reference audio file path (older F5-TTS versions)
-                "gen_text": text,           # Text to generate
-                "speed": speed,
-                "remove_silence": True      # Remove silence for cleaner output
-            }
-            
-            # Add reference text if available
-            if ref_text:
-                infer_params["ref_text"] = ref_text
-                print(f"🎯 Using reference text for better voice cloning")
-            
-            # Try multiple inference approaches for API version compatibility
-            inference_successful = False
-            audio_data = None
-            sample_rate = None
-            
-            # Attempt 1: ref_file parameter with infer method
             try:
-                print(f"🔄 Attempting F5-TTS inference with 'ref_file' parameter...")
-                audio_data, sample_rate, _ = current_model.infer(**infer_params)
-                print(f"✅ F5-TTS inference successful with 'ref_file' - audio shape: {audio_data.shape}, sample_rate: {sample_rate}")
-                inference_successful = True
-            except Exception as ref_file_error:
-                print(f"❌ F5-TTS inference failed with 'ref_file': {ref_file_error}")
+                # Use the official F5-TTS API parameters
+                print(f"🔄 Running F5-TTS inference with official API...")
                 
-                # Attempt 2: ref_audio parameter (newer F5-TTS versions)
-                try:
-                    print(f"🔄 Attempting F5-TTS inference with 'ref_audio' parameter...")
-                    infer_params["ref_audio"] = infer_params.pop("ref_file")
-                    audio_data, sample_rate, _ = current_model.infer(**infer_params)
-                    print(f"✅ F5-TTS inference successful with 'ref_audio' - audio shape: {audio_data.shape}, sample_rate: {sample_rate}")
-                    inference_successful = True
-                except Exception as ref_audio_error:
-                    print(f"❌ F5-TTS inference failed with 'ref_audio': {ref_audio_error}")
-                    
-                    # Attempt 3: Remove ref_text and try again
-                    if "ref_text" in infer_params:
-                        try:
-                            print(f"🔄 Attempting F5-TTS inference without 'ref_text'...")
-                            del infer_params["ref_text"]
-                            audio_data, sample_rate, _ = current_model.infer(**infer_params)
-                            print(f"✅ F5-TTS inference successful without ref_text - audio shape: {audio_data.shape}, sample_rate: {sample_rate}")
-                            inference_successful = True
-                        except Exception as no_ref_text_error:
-                            print(f"❌ F5-TTS inference failed without ref_text: {no_ref_text_error}")
-                            
-                            # Attempt 4: Try generate method instead of infer (alternative API)
-                            try:
-                                print(f"🔄 Attempting F5-TTS with 'generate' method...")
-                                # Restore ref_file for generate method
-                                if "ref_audio" in infer_params:
-                                    infer_params["ref_file"] = infer_params.pop("ref_audio")
-                                result = current_model.generate(infer_params)
-                                if isinstance(result, dict) and "wav" in result:
-                                    audio_data = result["wav"]
-                                    sample_rate = getattr(current_model, 'sample_rate', 24000)  # Default fallback
-                                    print(f"✅ F5-TTS generate method successful - sample_rate: {sample_rate}")
-                                    inference_successful = True
-                                else:
-                                    raise Exception("Generate method returned unexpected format")
-                            except Exception as generate_error:
-                                print(f"❌ F5-TTS generate method failed: {generate_error}")
-                                # Re-raise the original error with context
-                                raise Exception(f"All F5-TTS inference methods failed. Original errors - ref_file: {ref_file_error}, ref_audio: {ref_audio_error}, no_ref_text: {no_ref_text_error}, generate: {generate_error}")
-            
-            if not inference_successful:
-                raise Exception("F5-TTS inference failed with all attempted methods")
-            
-            # Write audio file with returned sample rate
-            sf.write(temp_audio.name, audio_data, sample_rate)
-            total_duration = len(audio_data) / sample_rate
-            print(f"✅ Audio generated: {total_duration:.2f}s")
+                # Ensure we have required parameters
+                if not voice_path:
+                    raise Exception("Reference audio file is required for F5-TTS")
+                
+                # Set default ref_text if not provided - let F5-TTS transcribe
+                if not ref_text:
+                    ref_text = ""  # Empty string triggers ASR transcription
+                    print(f"🎤 No reference text provided - F5-TTS will use ASR to transcribe reference audio")
+                else:
+                    print(f"🎯 Using provided reference text: {ref_text[:50]}...")
+                
+                # Call F5-TTS with correct parameters
+                wav, sr, spec = current_model.infer(
+                    ref_file=voice_path,
+                    ref_text=ref_text,
+                    gen_text=text,
+                    file_wave=temp_audio.name  # Direct output to temp file
+                )
+                
+                print(f"✅ F5-TTS inference successful - sample_rate: {sr}")
+                
+                # Verify output file was created
+                if not os.path.exists(temp_audio.name):
+                    raise Exception("F5-TTS did not create output file")
+                
+                # Get file info for logging
+                file_size = os.path.getsize(temp_audio.name)
+                audio_data, sample_rate = sf.read(temp_audio.name)
+                total_duration = len(audio_data) / sample_rate
+                
+                print(f"✅ Audio generated: {total_duration:.2f}s, {file_size} bytes")
+                
+            except Exception as e:
+                print(f"❌ F5-TTS inference failed: {e}")
+                import traceback
+                traceback.print_exc()
+                raise Exception(f"F5-TTS inference failed: {str(e)}")
 
             # Calculate word timings if requested
             word_timings = []
@@ -281,11 +239,6 @@ def handler(job):
     Optimized RunPod serverless handler for F5-TTS.
     """
     try:
-        # Ensure model is loaded on first request
-        current_model = load_model()
-        if not current_model:
-            return {"error": "TTS model failed to load"}
-
         job_input = job.get('input', {})
         endpoint = job_input.get("endpoint")
         
@@ -389,9 +342,19 @@ def handler(job):
             job_id = job_input.get("job_id")
             if not job_id or job_id not in jobs:
                 return {"error": "Invalid job_id."}
-            if jobs[job_id]["status"] != "COMPLETED":
-                return {"error": f"Job is not complete. Status: {jobs[job_id]['status']}"}
-            return jobs[job_id]["result"]
+            
+            job_status = jobs[job_id]["status"]
+            if job_status == "ERROR":
+                return {"error": f"Job failed: {jobs[job_id].get('error', 'Unknown error')}"}
+            elif job_status != "COMPLETED":
+                return {"error": f"Job is not complete. Status: {job_status}"}
+            
+            # Return successful result
+            result = jobs[job_id].get("result")
+            if not result:
+                return {"error": "Job completed but no result found"}
+            
+            return result
             
         elif endpoint == "list_voices":
             # List available voices in S3
@@ -432,6 +395,11 @@ def handler(job):
                 return {"error": f"Failed to list voices: {str(e)}"}
 
         else:  # Default to TTS generation
+            # Ensure model is loaded for TTS generation ONLY
+            current_model = load_model()
+            if not current_model:
+                return {"error": "TTS model failed to load"}
+            
             text = job_input.get('text')
             speed = job_input.get('speed', 1.0)
             return_word_timings = job_input.get('return_word_timings', True)
@@ -460,9 +428,70 @@ def handler(job):
 if __name__ == "__main__":
     print("🚀 Starting F5-TTS RunPod serverless worker...")
     
+    # Sync models from S3 for faster cold starts if enabled
+    if os.environ.get("ENABLE_S3_MODEL_CACHE", "").lower() == "true":
+        print("📥 Syncing models from S3 for faster cold starts...")
+        try:
+            from s3_utils import sync_models_from_s3
+            
+            # Use cache directory priority from optimization
+            cache_dirs = [
+                "/tmp/models",            # More space (10-20GB+) - preferred
+                "/app/models",            # Container fallback
+                "/runpod-volume/models"   # Limited space - last resort
+            ]
+            
+            for cache_dir in cache_dirs:
+                try:
+                    if sync_models_from_s3(cache_dir):
+                        print(f"✅ Models synced from S3 to {cache_dir}")
+                        # Set environment variables for model loading
+                        os.environ["HF_HOME"] = cache_dir
+                        os.environ["TRANSFORMERS_CACHE"] = cache_dir
+                        break
+                except Exception as e:
+                    print(f"⚠️ Failed to sync to {cache_dir}: {e}")
+                    continue
+            else:
+                print("⚠️ S3 model sync failed for all cache directories")
+                
+        except Exception as e:
+            print(f"⚠️ S3 model sync failed: {e}")
+            # Continue startup even if S3 sync fails
+    
     # Pre-load model for faster first inference
     print("🔄 Pre-loading F5-TTS model...")
     load_model()
+    
+    # Upload models to S3 for persistence if enabled
+    if os.environ.get("ENABLE_S3_MODEL_CACHE", "").lower() == "true":
+        print("☁️ Uploading models to S3 for persistence...")
+        try:
+            from s3_utils import upload_models_to_s3
+            
+            # Try multiple model cache directories
+            model_dirs = [
+                os.environ.get("HF_HOME", "/tmp/models"),
+                os.environ.get("TRANSFORMERS_CACHE", "/tmp/models"),
+                "/tmp/models",
+                "/app/models",
+                "/runpod-volume/models"
+            ]
+            
+            for model_dir in model_dirs:
+                if os.path.exists(model_dir) and os.listdir(model_dir):
+                    print(f"📦 Found models in {model_dir}, uploading to S3...")
+                    if upload_models_to_s3(model_dir):
+                        print(f"✅ Models uploaded from {model_dir}")
+                        break
+                    else:
+                        print(f"⚠️ Failed to upload models from {model_dir}")
+            else:
+                print("⚠️ No model directories found with content to upload")
+                
+        except Exception as e:
+            print(f"⚠️ S3 model upload failed: {e}")
+            # Continue startup even if S3 upload fails
     
     print("✅ F5-TTS RunPod serverless worker ready!")
     runpod.serverless.start({"handler": handler})

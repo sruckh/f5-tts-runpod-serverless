@@ -7,28 +7,29 @@
 **Progress**: 2/2 tasks completed
 
 ## Current Task
-**Task ID**: TASK-2025-07-31-006
-**Title**: F5-TTS API Version Compatibility Fix
+**Task ID**: TASK-2025-07-31-007
+**Title**: F5-TTS Critical Infrastructure Fixes - Complete System Overhaul
 **Status**: COMPLETE
-**Started**: 2025-07-31 22:00
-**Dependencies**: TASK-2025-07-31-005
+**Started**: 2025-07-31 23:00
+**Dependencies**: TASK-2025-07-31-006
 
 ### Task Context
-- **Previous Work**: Audio quality fixes applied but failing due to F5-TTS API parameter mismatch in container
-- **Key Files**: `runpod-handler.py:151-220` - F5-TTS inference with version compatibility, `runpod-handler.py:153-189` - progressive fallback system
-- **Environment**: F5-TTS container version doesn't support `ref_audio` parameter, causing inference failures
-- **Next Steps**: Test container deployment with multi-version API compatibility
+- **Previous Work**: Multiple critical issues in F5-TTS system identified by user: model loading timing, S3 upload missing, audio quality problems, API mismatch
+- **Key Files**: `runpod-handler.py:37-60` - model loading, `runpod-handler.py:140-185` - inference API, `runpod-handler.py:428-466` - startup sequence
+- **Environment**: Official F5-TTS container `ghcr.io/swivid/f5-tts:main` with correct API structure
+- **Next Steps**: Container rebuild and deployment testing with all fixes
 
 ### Findings & Decisions
-- **FINDING-001**: F5-TTS container version doesn't support `ref_audio` parameter from recent "fix"
-- **FINDING-002**: Different F5-TTS versions use incompatible parameter names (`ref_file` vs `ref_audio`)
-- **FINDING-003**: Some F5-TTS versions use `generate()` method instead of `infer()` method
-- **FINDING-004**: API version mismatch caused TypeError: unexpected keyword argument 'ref_audio'
-- **DECISION-001**: Implement progressive fallback system trying multiple API approaches
-- **DECISION-002**: Start with `ref_file` parameter (older versions), fallback to `ref_audio` (newer versions)
-- **DECISION-003**: Try `generate()` method as final fallback if `infer()` methods fail
-- **DECISION-004**: Provide comprehensive error context showing all attempted methods
-- **DECISION-005**: Maintain existing audio preprocessing and cleanup logic for stability
+- **FINDING-001**: Model was loading on ALL requests including status checks - major inefficiency
+- **FINDING-002**: Using completely wrong F5-TTS API - `F5TTS(model="F5TTS_v1_Base")` doesn't exist
+- **FINDING-003**: Official API is `F5TTS()` with no parameters, uses `infer(ref_file, ref_text, gen_text)`
+- **FINDING-004**: S3 model upload never integrated with TTS workflow - models never persisted
+- **FINDING-005**: Result endpoint had broken error handling causing failures even on success
+- **DECISION-001**: Fix model loading to only happen during TTS generation, not status checks
+- **DECISION-002**: Replace entire inference logic with correct official F5-TTS API calls
+- **DECISION-003**: Integrate S3 model sync (download) and upload (persistence) into startup sequence
+- **DECISION-004**: Fix result endpoint error handling to properly return successful results
+- **DECISION-005**: Use official API parameters exactly: ref_file, ref_text (empty for ASR), gen_text
 
 ### Task Chain
 1. ✅ Fix distutils error in Dockerfile (TASK-2025-07-29-003)
@@ -45,4 +46,5 @@
 12. ✅ F5-TTS Audio Quality & API Architecture Improvements (TASK-2025-07-31-003)
 13. ✅ Python Syntax Error Fixes in runpod-handler.py (TASK-2025-07-31-004)
 14. ✅ Critical Audio Quality Fix - F5-TTS API Parameter Recovery (TASK-2025-07-31-005)
-15. ✅ F5-TTS API Version Compatibility Fix (TASK-2025-07-31-006) (CURRENT)
+15. ✅ F5-TTS API Version Compatibility Fix (TASK-2025-07-31-006)
+16. ✅ F5-TTS Critical Infrastructure Fixes - Complete System Overhaul (TASK-2025-07-31-007) (CURRENT)

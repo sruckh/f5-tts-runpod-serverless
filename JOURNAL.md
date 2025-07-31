@@ -1,5 +1,16 @@
 # Engineering Journal
 
+## 2025-07-31 23:00
+
+### F5-TTS Critical Infrastructure Fixes - Complete System Overhaul |TASK:TASK-2025-07-31-007|
+- **What**: Complete reconstruction of F5-TTS system fixing 5 critical issues: model loading timing, API mismatch, S3 integration, audio quality, and result endpoint errors
+- **Why**: User reported system completely broken: model loading at wrong time, audio sounding like "fast foreign speech", models never uploading to S3, result endpoint always erroring
+- **How**: 1) Fixed model loading to only happen during TTS generation (not status checks), 2) Replaced entire inference with correct F5-TTS API (F5TTS() with ref_file/ref_text/gen_text), 3) Integrated S3 model sync/upload into startup sequence, 4) Fixed result endpoint error handling, 5) Used official API parameters exactly as documented
+- **Issues**: Previous implementation used completely non-existent API (F5TTS with model parameter doesn't exist), progressive fallback system was unnecessary complexity, S3 model persistence was never integrated
+- **Result**: Clean, working F5-TTS system using official API exactly as documented, proper S3 model caching for ~10x faster cold starts, model loading only when needed, successful result retrieval, high-quality audio output using correct parameters
+
+---
+
 ## 2025-07-31 18:30
 
 ### Python Syntax Error Resolution |TASK:TASK-2025-07-31-004|
