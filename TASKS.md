@@ -7,29 +7,27 @@
 **Progress**: 2/2 tasks completed
 
 ## Current Task
-**Task ID**: TASK-2025-07-31-003
-**Title**: F5-TTS Audio Quality & API Architecture Improvements
+**Task ID**: TASK-2025-07-31-004
+**Title**: Python Syntax Error Fixes in runpod-handler.py
 **Status**: COMPLETE
-**Started**: 2025-07-30 23:00
-**Dependencies**: TASK-2025-07-30-005
+**Started**: 2025-07-31 18:00
+**Dependencies**: TASK-2025-07-31-003
 
 ### Task Context
-- **Previous Work**: Container debugging completed in TASK-2025-07-31-002, identified audio quality and API architecture issues
-- **Key Files**: `runpod-handler.py:234-290` - F5-TTS inference parameters, `runpod-handler.py:516-580` - Download endpoint, `runpod-handler.py:342-410` - Timing data file generation
-- **Environment**: F5-TTS producing garbled audio, direct S3 URLs requiring authentication, large timing data affecting API performance
-- **Next Steps**: Test audio quality improvements and new downloadable timing files architecture
+- **Previous Work**: Audio quality and API architecture improvements completed in TASK-2025-07-31-003, deployment blocked by Python syntax errors
+- **Key Files**: `runpod-handler.py:119-120` - generate_srt_from_timings function, `runpod-handler.py:127-128` - generate_compact_from_timings function
+- **Environment**: Python SyntaxError on line 119 preventing container deployment with unterminated string literals
+- **Next Steps**: Deploy container with fixed syntax errors
 
 ### Findings & Decisions
-- **FINDING-001**: F5-TTS producing garbled audio due to incorrect API parameters (ref_file vs ref_audio)
-- **FINDING-002**: Reference audio too long (12+ seconds) causing clipping issues in F5-TTS
-- **FINDING-003**: Direct S3 URLs exposed in responses require client authentication
-- **FINDING-004**: Large timing data in JSON responses exceed API limits for long audio
-- **FINDING-005**: Pydantic v2 deprecation warning (.dict() vs .model_dump())
-- **DECISION-001**: Fix F5-TTS API parameters: ref_file → ref_audio, add remove_silence: true
-- **DECISION-002**: Add audio preprocessing to clip reference audio >10s to optimal 8s duration
-- **DECISION-003**: Replace direct S3 URLs with serverless /download endpoint for security
-- **DECISION-004**: Convert timing data to downloadable files (SRT, CSV, VTT) instead of inline JSON
-- **DECISION-005**: Add multiple timing formats for FFMPEG subtitle integration
+- **FINDING-001**: Python SyntaxError: unterminated string literal detected at line 119 in runpod-handler.py
+- **FINDING-002**: Broken return statements in generate_srt_from_timings() and generate_compact_from_timings() functions
+- **FINDING-003**: String literals split across lines incorrectly causing parse errors
+- **FINDING-004**: generate_compact_from_timings() function corrupted during previous fixes
+- **DECISION-001**: Fix unterminated string literals by properly formatting return "
+".join() statements
+- **DECISION-002**: Restore missing generate_compact_from_timings() function with correct implementation
+- **DECISION-003**: Validate all timing helper functions return correct variable names (srt_lines vs compact_lines)
 
 ### Task Chain
 1. ✅ Fix distutils error in Dockerfile (TASK-2025-07-29-003)
@@ -43,4 +41,5 @@
 9. ✅ Flash Attention & Concurrent S3 Download Issues Resolution (TASK-2025-07-30-006)
 10. ✅ Flash Attention Version Update & Disk Space Optimization (TASK-2025-07-31-001)
 11. ✅ Container S3 Functions & Flash Attention PyTorch Compatibility Fix (TASK-2025-07-31-002)
-12. ✅ F5-TTS Audio Quality & API Architecture Improvements (TASK-2025-07-31-003) (CURRENT)
+12. ✅ F5-TTS Audio Quality & API Architecture Improvements (TASK-2025-07-31-003)
+13. ✅ Python Syntax Error Fixes in runpod-handler.py (TASK-2025-07-31-004) (CURRENT)
