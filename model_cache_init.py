@@ -89,7 +89,7 @@ def install_flash_attn():
     
     try:
         # Use the specific wheel that works for Python 3.11 + CUDA 12.x (RunPod environment)
-        wheel_url = "https://github.com/Dao-AILab/flash-attention/releases/download/v2.8.2/flash_attn-2.8.2+cu12torch2.6cxx11abiFALSE-cp311-cp311-linux_x86_64.whl"
+        wheel_url = "https://github.com/Dao-AILab/flash-attention/releases/download/v2.8.0.post2/flash_attn-2.8.0.post2+cu12torch2.6cxx11abiFALSE-cp311-cp311-linux_x86_64.whl"
         
         print("⚡ Installing CUDA 12.x + Python 3.11 compatible flash_attn...")
         print(f"🔄 Installing wheel: {wheel_url}")
@@ -130,11 +130,11 @@ def sync_models_from_s3_cache():
         # Import S3 sync function
         from s3_utils import sync_models_from_s3
         
-        # Determine local cache directory (prefer persistent volume)
+        # Determine local cache directory (prefer /tmp for space, RunPod volume is too small for models)
         local_cache_dirs = [
-            "/runpod-volume/models",  # RunPod persistent volume (preferred)
-            "/tmp/models",            # Temporary fallback
-            "/app/models"             # Container fallback
+            "/tmp/models",            # Temporary with more space (preferred for models)
+            "/app/models",            # Container fallback
+            "/runpod-volume/models"   # RunPod volume (last resort - limited space)
         ]
         
         local_models_dir = None
@@ -195,12 +195,13 @@ def upload_models_to_s3_cache():
         # Import S3 upload function
         from s3_utils import upload_models_to_s3
         
-        # Find local model directories with content
+        # Find local model directories with content (prioritize /tmp where models should be)
         local_cache_dirs = [
-            os.environ.get("HF_HOME", "/runpod-volume/models"),
-            os.environ.get("TRANSFORMERS_CACHE", "/runpod-volume/models"),
+            os.environ.get("HF_HOME", "/tmp/models"),
+            os.environ.get("TRANSFORMERS_CACHE", "/tmp/models"),
+            "/tmp/models",
             "/app/models",
-            "/tmp/models"
+            "/runpod-volume/models"  # Last resort
         ]
         
         for local_models_dir in local_cache_dirs:

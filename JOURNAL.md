@@ -1,5 +1,16 @@
 # Engineering Journal
 
+## 2025-07-31 08:30
+
+### Flash Attention Version Update & Disk Space Optimization |TASK:TASK-2025-07-31-001|
+- **What**: Updated flash_attn to v2.8.0.post2 and fixed RunPod volume disk space issues by prioritizing /tmp directory
+- **Why**: User requested specific flash_attn version for stability; RunPod volume (~5-10GB) too small for F5-TTS models (~2.8GB) causing "out of disk space" errors
+- **How**: Updated wheel URL in model_cache_init.py:89, reordered cache directory priority to use /tmp first (more space), RunPod volume last
+- **Issues**: Previous implementation prioritized limited RunPod volume over spacious /tmp directory, causing deployment failures
+- **Result**: S3 model caching now uses /tmp (10-20GB+ available) preventing disk space errors while maintaining fast cold starts
+
+---
+
 ## 2025-07-28 22:18
 
 ### Documentation Framework Implementation
