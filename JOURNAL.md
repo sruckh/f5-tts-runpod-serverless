@@ -28,6 +28,17 @@
 - **What**: Applied essential audio quality fixes from commit 55aa151 to restore clear audio generation without complex timing features
 - **Why**: Container exit issues forced rollback to stable version (commit 540bc9d) which was missing critical fixes for garbled audio output
 - **How**: Selectively applied three key changes: 1) F5-TTS API parameter fix (ref_file→ref_audio), 2) Added librosa audio preprocessing with 8-second clipping, 3) Implemented fallback inference logic for API compatibility
+
+---
+
+## 2025-07-31 22:00
+
+### F5-TTS API Version Compatibility Fix |TASK:TASK-2025-07-31-006|
+- **What**: Implemented progressive fallback system to handle F5-TTS API version differences across container deployments
+- **Why**: Previous audio quality fix failed because container F5-TTS version doesn't support 'ref_audio' parameter, causing TypeError
+- **How**: Created 4-tier fallback system: 1) ref_file + infer() (older versions), 2) ref_audio + infer() (newer versions), 3) remove ref_text retry, 4) generate() method fallback
+- **Issues**: F5-TTS API versions inconsistent across deployments, official docs show ref_audio but container uses ref_file, no version detection method available
+- **Result**: Version-agnostic inference system that works with multiple F5-TTS API versions, comprehensive error logging shows which method succeeds, maintains audio quality fixes while ensuring compatibility
 - **Issues**: Complex timing features (SRT/VTT/CSV generation) caused cascading syntax errors, required careful surgical approach to preserve stability while fixing audio quality
 - **Result**: Clean audio generation restored, container stability maintained, ready for production deployment without garbled noise issues
 

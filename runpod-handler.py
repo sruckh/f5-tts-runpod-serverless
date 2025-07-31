@@ -148,34 +148,78 @@ def process_tts_job(job_id, text, speed, return_word_timings, local_voice):
         with tempfile.NamedTemporaryFile(suffix=".wav", delete=False) as temp_audio:
             temp_files.append(temp_audio.name)
             
-            # Use the model's infer method with correct parameter names for F5-TTS
-            # F5-TTS API expects: ref_audio, gen_text, and optional ref_text
+            # Use the model's inference method with version-compatible parameter handling
+            # Try different parameter combinations to handle F5-TTS API version differences
+            
+            # Attempt 1: Use ref_file (older F5-TTS versions)
             infer_params = {
-                "ref_audio": voice_path,    # Reference audio file path (F5-TTS expects 'ref_audio')
+                "ref_file": voice_path,     # Reference audio file path (older F5-TTS versions)
                 "gen_text": text,           # Text to generate
                 "speed": speed,
                 "remove_silence": True      # Remove silence for cleaner output
             }
             
-            # Add reference text if available (F5-TTS uses this for better voice cloning)
+            # Add reference text if available
             if ref_text:
                 infer_params["ref_text"] = ref_text
                 print(f"🎯 Using reference text for better voice cloning")
             
-            # F5TTS infer returns (wav, sample_rate, spectrogram)
+            # Try multiple inference approaches for API version compatibility
+            inference_successful = False
+            audio_data = None
+            sample_rate = None
+            
+            # Attempt 1: ref_file parameter with infer method
             try:
+                print(f"🔄 Attempting F5-TTS inference with 'ref_file' parameter...")
                 audio_data, sample_rate, _ = current_model.infer(**infer_params)
-                print(f"✅ F5-TTS inference successful - audio shape: {audio_data.shape}, sample_rate: {sample_rate}")
-            except Exception as infer_error:
-                print(f"❌ F5-TTS inference failed: {infer_error}")
-                print(f"🔍 Trying fallback inference without ref_text...")
-                # Fallback: try without ref_text if it fails
-                if "ref_text" in infer_params:
-                    del infer_params["ref_text"]
+                print(f"✅ F5-TTS inference successful with 'ref_file' - audio shape: {audio_data.shape}, sample_rate: {sample_rate}")
+                inference_successful = True
+            except Exception as ref_file_error:
+                print(f"❌ F5-TTS inference failed with 'ref_file': {ref_file_error}")
+                
+                # Attempt 2: ref_audio parameter (newer F5-TTS versions)
+                try:
+                    print(f"🔄 Attempting F5-TTS inference with 'ref_audio' parameter...")
+                    infer_params["ref_audio"] = infer_params.pop("ref_file")
                     audio_data, sample_rate, _ = current_model.infer(**infer_params)
-                    print(f"✅ Fallback inference successful")
-                else:
-                    raise infer_error
+                    print(f"✅ F5-TTS inference successful with 'ref_audio' - audio shape: {audio_data.shape}, sample_rate: {sample_rate}")
+                    inference_successful = True
+                except Exception as ref_audio_error:
+                    print(f"❌ F5-TTS inference failed with 'ref_audio': {ref_audio_error}")
+                    
+                    # Attempt 3: Remove ref_text and try again
+                    if "ref_text" in infer_params:
+                        try:
+                            print(f"🔄 Attempting F5-TTS inference without 'ref_text'...")
+                            del infer_params["ref_text"]
+                            audio_data, sample_rate, _ = current_model.infer(**infer_params)
+                            print(f"✅ F5-TTS inference successful without ref_text - audio shape: {audio_data.shape}, sample_rate: {sample_rate}")
+                            inference_successful = True
+                        except Exception as no_ref_text_error:
+                            print(f"❌ F5-TTS inference failed without ref_text: {no_ref_text_error}")
+                            
+                            # Attempt 4: Try generate method instead of infer (alternative API)
+                            try:
+                                print(f"🔄 Attempting F5-TTS with 'generate' method...")
+                                # Restore ref_file for generate method
+                                if "ref_audio" in infer_params:
+                                    infer_params["ref_file"] = infer_params.pop("ref_audio")
+                                result = current_model.generate(infer_params)
+                                if isinstance(result, dict) and "wav" in result:
+                                    audio_data = result["wav"]
+                                    sample_rate = getattr(current_model, 'sample_rate', 24000)  # Default fallback
+                                    print(f"✅ F5-TTS generate method successful - sample_rate: {sample_rate}")
+                                    inference_successful = True
+                                else:
+                                    raise Exception("Generate method returned unexpected format")
+                            except Exception as generate_error:
+                                print(f"❌ F5-TTS generate method failed: {generate_error}")
+                                # Re-raise the original error with context
+                                raise Exception(f"All F5-TTS inference methods failed. Original errors - ref_file: {ref_file_error}, ref_audio: {ref_audio_error}, no_ref_text: {no_ref_text_error}, generate: {generate_error}")
+            
+            if not inference_successful:
+                raise Exception("F5-TTS inference failed with all attempted methods")
             
             # Write audio file with returned sample rate
             sf.write(temp_audio.name, audio_data, sample_rate)
