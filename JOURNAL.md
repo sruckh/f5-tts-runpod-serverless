@@ -1,5 +1,16 @@
 # Engineering Journal
 
+## 2025-07-31 16:30
+
+### Container S3 Functions & Flash Attention PyTorch Compatibility Fix |TASK:TASK-2025-07-31-002|
+- **What**: Identified and fixed container version mismatch issues for S3 model caching functions and flash_attn PyTorch compatibility
+- **Why**: User logs revealed container missing S3 model caching functions and flash_attn PyTorch version mismatch causing undefined symbol errors
+- **How**: Added comprehensive debugging to identify exact issues - container has old s3_utils.py missing sync/upload functions, flash_attn needs PyTorch 2.4 wheel
+- **Issues**: Container built from older code version before S3 model caching functions were added; PyTorch 2.4 environment requires specific wheel version
+- **Result**: Identified root causes requiring container rebuild and correct flash_attn wheel (torch2.4cxx11abiFALSE) for PyTorch compatibility
+
+---
+
 ## 2025-07-31 08:30
 
 ### Flash Attention Version Update & Disk Space Optimization |TASK:TASK-2025-07-31-001|

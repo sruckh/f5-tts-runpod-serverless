@@ -96,8 +96,8 @@ def install_flash_attn():
         print(f"   PyTorch: {torch.__version__}")
         print(f"   PyTorch CUDA: {torch.version.cuda if hasattr(torch.version, 'cuda') else 'N/A'}")
         
-        # Use the specific wheel that works for Python 3.11 + CUDA 12.x (RunPod environment)
-        wheel_url = "https://github.com/Dao-AILab/flash-attention/releases/download/v2.8.0.post2/flash_attn-2.8.0.post2+cu12torch2.6cxx11abiFALSE-cp311-cp311-linux_x86_64.whl"
+        # Use the specific wheel that works for Python 3.11 + CUDA 12.x + PyTorch 2.4 (RunPod environment)
+        wheel_url = "https://github.com/Dao-AILab/flash-attention/releases/download/v2.8.0.post2/flash_attn-2.8.0.post2+cu12torch2.4cxx11abiFALSE-cp311-cp311-linux_x86_64.whl"
         
         print("⚡ Installing CUDA 12.x + Python 3.11 compatible flash_attn...")
         print(f"🔄 Installing wheel: {wheel_url}")
