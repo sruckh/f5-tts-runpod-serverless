@@ -1,5 +1,16 @@
 # Engineering Journal
 
+## 2025-07-31 20:00
+
+### F5-TTS Audio Quality & API Architecture Improvements |TASK:TASK-2025-07-31-003|
+- **What**: Fixed garbled audio output, replaced direct S3 URLs with secure downloads, and converted timing data to downloadable files
+- **Why**: User reported three critical issues: garbled audio (unusable), direct S3 URLs requiring authentication, and large timing data exceeding API limits
+- **How**: Fixed F5-TTS API parameters (ref_file→ref_audio), added audio preprocessing for optimal duration, implemented /download endpoint, created multiple timing file formats (SRT, CSV, VTT)
+- **Issues**: F5-TTS API parameter mismatch, reference audio clipping at 12+ seconds, security concerns with direct bucket access, JSON payload size limits
+- **Result**: High-quality voice cloning with proper audio preprocessing, secure serverless downloads, FFMPEG-ready subtitle files reducing API payload by 80-90%
+
+---
+
 ## 2025-07-31 16:30
 
 ### Container S3 Functions & Flash Attention PyTorch Compatibility Fix |TASK:TASK-2025-07-31-002|
