@@ -88,6 +88,14 @@ def install_flash_attn():
         print("📦 flash_attn not found, proceeding with installation...")
     
     try:
+        # Print environment info for debugging wheel compatibility
+        import torch
+        print(f"🔍 Environment Detection:")
+        print(f"   Python: 3.11 (expected)")
+        print(f"   CUDA: 12.4 (expected)") 
+        print(f"   PyTorch: {torch.__version__}")
+        print(f"   PyTorch CUDA: {torch.version.cuda if hasattr(torch.version, 'cuda') else 'N/A'}")
+        
         # Use the specific wheel that works for Python 3.11 + CUDA 12.x (RunPod environment)
         wheel_url = "https://github.com/Dao-AILab/flash-attention/releases/download/v2.8.0.post2/flash_attn-2.8.0.post2+cu12torch2.6cxx11abiFALSE-cp311-cp311-linux_x86_64.whl"
         
@@ -131,7 +139,14 @@ def sync_models_from_s3_cache():
         import sys
         import os
         sys.path.insert(0, '/app')  # Ensure /app is in Python path
+        
+        # Debug: Check what functions are available in s3_utils
+        import s3_utils
+        available_functions = [func for func in dir(s3_utils) if not func.startswith('_') and callable(getattr(s3_utils, func))]
+        print(f"🔍 Available s3_utils functions: {available_functions}")
+        
         from s3_utils import sync_models_from_s3
+        print("✅ S3 sync function imported successfully")
         
         # Determine local cache directory (prefer /tmp for space, RunPod volume is too small for models)
         local_cache_dirs = [
@@ -202,6 +217,7 @@ def upload_models_to_s3_cache():
         import os
         sys.path.insert(0, '/app')  # Ensure /app is in Python path
         from s3_utils import upload_models_to_s3
+        print("✅ S3 upload function imported successfully")
         
         # Find local model directories with content (prioritize /tmp where models should be)
         local_cache_dirs = [
