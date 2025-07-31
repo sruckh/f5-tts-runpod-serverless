@@ -127,7 +127,10 @@ def sync_models_from_s3_cache():
     This dramatically reduces cold start time by avoiding HuggingFace downloads.
     """
     try:
-        # Import S3 sync function
+        # Import S3 sync function with explicit path handling
+        import sys
+        import os
+        sys.path.insert(0, '/app')  # Ensure /app is in Python path
         from s3_utils import sync_models_from_s3
         
         # Determine local cache directory (prefer /tmp for space, RunPod volume is too small for models)
@@ -164,22 +167,24 @@ def sync_models_from_s3_cache():
             s3_models_prefix="models/"
         )
         
+        # Always set environment variables to our preferred cache directory
+        # This ensures F5-TTS downloads models to the right place even on first deployment
+        os.environ["HF_HOME"] = local_models_dir
+        os.environ["TRANSFORMERS_CACHE"] = local_models_dir
+        os.environ["HF_HUB_CACHE"] = os.path.join(local_models_dir, "hub")
+        os.environ["TORCH_HOME"] = os.path.join(local_models_dir, "torch")
+        
         if sync_success:
-            # Update environment variables to point to synced models
-            os.environ["HF_HOME"] = local_models_dir
-            os.environ["TRANSFORMERS_CACHE"] = local_models_dir
-            os.environ["HF_HUB_CACHE"] = os.path.join(local_models_dir, "hub")
-            os.environ["TORCH_HOME"] = os.path.join(local_models_dir, "torch")
-            
             print(f"✅ S3 model sync completed - models cached in {local_models_dir}")
             print(f"⚡ Cold start optimization: Models will load from local cache")
-            return True
         else:
-            print("⚠️ S3 model sync failed - will download from HuggingFace on first use")
-            return False
+            print(f"⚠️ S3 model sync failed - F5-TTS will download to {local_models_dir}")
+            print(f"📤 Models will be uploaded to S3 after first successful load")
             
-    except ImportError:
-        print("❌ S3 utils not available - skipping S3 model sync")
+        return sync_success
+            
+    except ImportError as e:
+        print(f"❌ S3 utils import failed - skipping S3 model sync: {e}")
         return False
     except Exception as e:
         print(f"❌ S3 model sync error: {e}")
@@ -192,7 +197,10 @@ def upload_models_to_s3_cache():
     This should be called after models are downloaded/cached locally.
     """
     try:
-        # Import S3 upload function
+        # Import S3 upload function with explicit path handling
+        import sys
+        import os
+        sys.path.insert(0, '/app')  # Ensure /app is in Python path
         from s3_utils import upload_models_to_s3
         
         # Find local model directories with content (prioritize /tmp where models should be)
@@ -221,8 +229,8 @@ def upload_models_to_s3_cache():
         print("⚠️ No models found to upload to S3")
         return False
         
-    except ImportError:
-        print("❌ S3 utils not available - skipping S3 model upload")
+    except ImportError as e:
+        print(f"❌ S3 utils import failed - skipping S3 model upload: {e}")
         return False
     except Exception as e:
         print(f"❌ S3 model upload error: {e}")
