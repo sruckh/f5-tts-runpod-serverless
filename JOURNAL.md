@@ -22,6 +22,17 @@
 
 ---
 
+## 2025-07-31 21:00
+
+### Critical Audio Quality Recovery - F5-TTS API Parameter Fix |TASK:TASK-2025-07-31-005|
+- **What**: Applied essential audio quality fixes from commit 55aa151 to restore clear audio generation without complex timing features
+- **Why**: Container exit issues forced rollback to stable version (commit 540bc9d) which was missing critical fixes for garbled audio output
+- **How**: Selectively applied three key changes: 1) F5-TTS API parameter fix (ref_file→ref_audio), 2) Added librosa audio preprocessing with 8-second clipping, 3) Implemented fallback inference logic for API compatibility
+- **Issues**: Complex timing features (SRT/VTT/CSV generation) caused cascading syntax errors, required careful surgical approach to preserve stability while fixing audio quality
+- **Result**: Clean audio generation restored, container stability maintained, ready for production deployment without garbled noise issues
+
+---
+
 ## 2025-07-31 16:30
 
 ### Container S3 Functions & Flash Attention PyTorch Compatibility Fix |TASK:TASK-2025-07-31-002|

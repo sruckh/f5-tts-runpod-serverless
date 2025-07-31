@@ -7,27 +7,28 @@
 **Progress**: 2/2 tasks completed
 
 ## Current Task
-**Task ID**: TASK-2025-07-31-004
-**Title**: Python Syntax Error Fixes in runpod-handler.py
+**Task ID**: TASK-2025-07-31-005
+**Title**: Critical Audio Quality Fix - F5-TTS API Parameter Recovery
 **Status**: COMPLETE
-**Started**: 2025-07-31 18:00
-**Dependencies**: TASK-2025-07-31-003
+**Started**: 2025-07-31 20:00
+**Dependencies**: TASK-2025-07-31-004
 
 ### Task Context
-- **Previous Work**: Audio quality and API architecture improvements completed in TASK-2025-07-31-003, deployment blocked by Python syntax errors
-- **Key Files**: `runpod-handler.py:119-120` - generate_srt_from_timings function, `runpod-handler.py:127-128` - generate_compact_from_timings function
-- **Environment**: Python SyntaxError on line 119 preventing container deployment with unterminated string literals
-- **Next Steps**: Deploy container with fixed syntax errors
+- **Previous Work**: Container exit issues resolved, but restored version from commit 540bc9d missing critical audio quality fixes
+- **Key Files**: `runpod-handler.py:126-130` - F5-TTS API parameters, `runpod-handler.py:119-144` - audio preprocessing, `runpod-handler.py:139-151` - error handling
+- **Environment**: Garbled audio output due to deprecated F5-TTS API parameters in restored stable version
+- **Next Steps**: Deploy container with audio quality fixes for production testing
 
 ### Findings & Decisions
-- **FINDING-001**: Python SyntaxError: unterminated string literal detected at line 119 in runpod-handler.py
-- **FINDING-002**: Broken return statements in generate_srt_from_timings() and generate_compact_from_timings() functions
-- **FINDING-003**: String literals split across lines incorrectly causing parse errors
-- **FINDING-004**: generate_compact_from_timings() function corrupted during previous fixes
-- **DECISION-001**: Fix unterminated string literals by properly formatting return "
-".join() statements
-- **DECISION-002**: Restore missing generate_compact_from_timings() function with correct implementation
-- **DECISION-003**: Validate all timing helper functions return correct variable names (srt_lines vs compact_lines)
+- **FINDING-001**: Restored stable version (commit 540bc9d) uses deprecated `ref_file` parameter causing garbled audio output
+- **FINDING-002**: Missing librosa-based audio preprocessing for optimal 8-second voice clipping
+- **FINDING-003**: No fallback logic for F5-TTS API compatibility across versions
+- **FINDING-004**: Complex timing features in broken version caused cascading syntax errors
+- **DECISION-001**: Apply selective fixes from commit 55aa151 (audio quality) without complex timing features
+- **DECISION-002**: Change `ref_file` → `ref_audio` as primary fix for clear audio generation
+- **DECISION-003**: Add librosa audio preprocessing with 8-second optimal clipping
+- **DECISION-004**: Implement fallback inference without ref_text for API compatibility
+- **DECISION-005**: Preserve simple structure, avoid complex SRT/VTT timing formats that caused issues
 
 ### Task Chain
 1. ✅ Fix distutils error in Dockerfile (TASK-2025-07-29-003)
@@ -42,4 +43,5 @@
 10. ✅ Flash Attention Version Update & Disk Space Optimization (TASK-2025-07-31-001)
 11. ✅ Container S3 Functions & Flash Attention PyTorch Compatibility Fix (TASK-2025-07-31-002)
 12. ✅ F5-TTS Audio Quality & API Architecture Improvements (TASK-2025-07-31-003)
-13. ✅ Python Syntax Error Fixes in runpod-handler.py (TASK-2025-07-31-004) (CURRENT)
+13. ✅ Python Syntax Error Fixes in runpod-handler.py (TASK-2025-07-31-004)
+14. ✅ Critical Audio Quality Fix - F5-TTS API Parameter Recovery (TASK-2025-07-31-005) (CURRENT)
