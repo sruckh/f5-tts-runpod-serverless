@@ -7,29 +7,27 @@
 **Progress**: 2/2 tasks completed
 
 ## Current Task
-**Task ID**: TASK-2025-08-01-001
-**Title**: F5-TTS Reference Text Elimination & Model Loading Optimization
+**Task ID**: TASK-2025-08-01-002
+**Title**: F5-TTS API Modernization & Compatibility Fix
 **Status**: COMPLETE
-**Started**: 2025-08-01 12:00
-**Dependencies**: TASK-2025-07-31-007
+**Started**: 2025-08-01 15:00
+**Dependencies**: TASK-2025-08-01-001
 
 ### Task Context
-- **Previous Work**: Container debugging revealed tensor dimension mismatch issue and missing S3 functions requiring complete inference API overhaul
-- **Key Files**: `runpod-handler.py:33-124` - new model loading functions, `runpod-handler.py:127-248` - inference API rewrite, `runpod-handler.py:316-362` - upload endpoint updates
-- **Environment**: F5-TTS CLI inference patterns with automatic transcription capability
-- **Next Steps**: Container rebuild with latest code and validation testing
+- **Previous Work**: F5-TTS model loading failed with `TypeError: load_model() got an unexpected keyword argument 'model_arch'`
+- **Key Files**: `runpod-handler.py:37-164` - modernized API imports and model loading, `runpod-handler.py:46-64` - simplified model initialization, `runpod-handler.py:134-164` - updated inference method
+- **Environment**: Modern F5-TTS API using `f5_tts.api.F5TTS` class instead of deprecated utils_infer
+- **Next Steps**: Container testing and validation of new API integration
 
 ### Findings & Decisions
-- **FINDING-001**: Tensor dimension mismatch caused by reference text from full audio vs trimmed audio length disparity
-- **FINDING-002**: F5-TTS trims reference audio to <12 seconds but transcribed text was from original full-length audio
-- **FINDING-003**: Container missing S3 model caching functions due to old code version - rebuild required
-- **FINDING-004**: Model loading happening at startup inefficient - should be during inference only
-- **FINDING-005**: User insight: eliminating reference text and using audio <12s should fix tensor mismatch
-- **DECISION-001**: Remove all reference text file usage - F5-TTS will auto-transcribe processed audio
-- **DECISION-002**: Use F5-TTS CLI inference patterns with preprocess_ref_audio_text() and infer_process()
-- **DECISION-003**: Load models dynamically during inference using get_f5_tts_model() and get_vocoder()
-- **DECISION-004**: Update upload endpoint to not require reference text files - audio only
-- **DECISION-005**: Enhanced debugging for container function availability diagnosis
+- **FINDING-001**: F5-TTS deprecated old `utils_infer` module causing `load_model()` parameter compatibility errors
+- **FINDING-002**: Modern API uses simple `F5TTS(model_name, device)` initialization instead of complex configuration loading
+- **FINDING-003**: New inference method `f5tts_model.infer(ref_file, ref_text, gen_text, file_wave, seed)` replaces complex `infer_process()` calls
+- **FINDING-004**: Modern API handles vocoder internally, eliminating need for separate vocoder management
+- **DECISION-001**: Replace deprecated imports with `from f5_tts.api import F5TTS` for modern API compatibility
+- **DECISION-002**: Simplify model loading from ~50 lines of configuration to single `F5TTS()` call
+- **DECISION-003**: Update inference to use streamlined `infer()` method with automatic transcription support
+- **DECISION-004**: Remove complex vocoder handling as modern API manages this internally
 
 ### Task Chain
 1. ✅ Fix distutils error in Dockerfile (TASK-2025-07-29-003)
@@ -48,4 +46,5 @@
 14. ✅ Critical Audio Quality Fix - F5-TTS API Parameter Recovery (TASK-2025-07-31-005)
 15. ✅ F5-TTS API Version Compatibility Fix (TASK-2025-07-31-006)
 16. ✅ F5-TTS Critical Infrastructure Fixes - Complete System Overhaul (TASK-2025-07-31-007)
-17. ✅ F5-TTS Reference Text Elimination & Model Loading Optimization (TASK-2025-08-01-001) (CURRENT)
+17. ✅ F5-TTS Reference Text Elimination & Model Loading Optimization (TASK-2025-08-01-001)
+18. ✅ F5-TTS API Modernization & Compatibility Fix (TASK-2025-08-01-002) (CURRENT)

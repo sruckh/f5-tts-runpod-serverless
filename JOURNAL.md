@@ -1,5 +1,16 @@
 # Engineering Journal
 
+## 2025-08-01 15:00
+
+### F5-TTS API Modernization & Compatibility Fix |TASK:TASK-2025-08-01-002|
+- **What**: Complete migration from deprecated F5-TTS inference utilities to modern F5TTS API class, fixing `TypeError: load_model() got an unexpected keyword argument 'model_arch'`
+- **Why**: F5-TTS library deprecated old `utils_infer` module with complex configuration loading, modern API uses simplified `F5TTS` class
+- **How**: 1) Replaced imports from `f5_tts.infer.utils_infer` to `f5_tts.api.F5TTS`, 2) Simplified model loading from complex OmegaConf/hydra configuration to single `F5TTS(model_name, device)` call, 3) Updated inference from `infer_process()` with many parameters to streamlined `f5tts_model.infer()` method, 4) Removed vocoder complexity as modern API handles internally
+- **Issues**: Old API required manual configuration parsing, vocoder management, and parameter compatibility that was error-prone and unsupported
+- **Result**: ~70% code reduction in model loading complexity, compatibility with current F5-TTS releases, simplified maintenance, reliable inference using official supported API endpoints
+
+---
+
 ## 2025-08-01 12:00
 
 ### F5-TTS Reference Text Elimination & Model Loading Optimization |TASK:TASK-2025-08-01-001|

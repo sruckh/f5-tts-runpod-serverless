@@ -34,91 +34,31 @@ jobs = {}
 # Note: F5-TTS models are loaded dynamically during inference, not at startup
 device = "cuda" if torch.cuda.is_available() else "cpu"
 
-# Import F5-TTS inference components
+# Import F5-TTS inference components - using modern API
 try:
-    from f5_tts.infer.utils_infer import (
-        load_model, load_vocoder, preprocess_ref_audio_text, infer_process,
-        mel_spec_type, target_rms, cross_fade_duration, nfe_step, 
-        cfg_strength, sway_sampling_coef, speed, fix_duration
-    )
-    from omegaconf import OmegaConf
-    from hydra.utils import get_class
-    from cached_path import cached_path
-    from importlib.resources import files
-    print("✅ F5-TTS inference utilities imported successfully")
+    from f5_tts.api import F5TTS
+    print("✅ F5-TTS API imported successfully")
 except ImportError as e:
-    print(f"❌ Failed to import F5-TTS inference utilities: {e}")
+    print(f"❌ Failed to import F5-TTS API: {e}")
     # Graceful fallback - will fail during inference
-    load_model = None
+    F5TTS = None
 
 def get_f5_tts_model(model_name="F5TTS_v1_Base"):
-    """Load F5-TTS model using the official inference API."""
+    """Load F5-TTS model using the modern F5TTS API."""
     try:
         print(f"🔄 Loading F5-TTS model: {model_name}")
         
-        # Load model configuration
-        model_cfg = OmegaConf.load(str(files("f5_tts").joinpath(f"configs/{model_name}.yaml")))
-        model_cls = get_class(f"f5_tts.model.{model_cfg.model.backbone}")
-        model_arch = model_cfg.model.arch
+        if not F5TTS:
+            raise Exception("F5TTS API not available")
         
-        # Set up model checkpoint path
-        repo_name = "F5-TTS"
-        ckpt_step = 1250000
-        ckpt_type = "safetensors"
-        
-        if model_name == "E2TTS_Base":
-            repo_name = "E2-TTS"
-            ckpt_step = 1200000
-        elif model_name == "F5TTS_Base":
-            ckpt_step = 1200000
-        
-        ckpt_file = str(cached_path(f"hf://SWivid/{repo_name}/{model_name}/model_{ckpt_step}.{ckpt_type}"))
-        
-        print(f"📦 Loading model from: {ckpt_file}")
-        
-        # Load the model using F5-TTS official API
-        ema_model = load_model(
-            model_cls=model_cls,
-            model_arch=model_arch, 
-            ckpt_file=ckpt_file,
-            mel_spec_type=mel_spec_type,
-            vocab_file="",  # Use default
-            device=device
-        )
+        # Initialize F5TTS model using the modern API
+        f5tts = F5TTS(model_name=model_name, device=device)
         
         print(f"✅ F5-TTS model loaded successfully: {model_name}")
-        return ema_model
+        return f5tts
         
     except Exception as e:
         print(f"❌ Error loading F5-TTS model: {e}")
-        import traceback
-        traceback.print_exc()
-        return None
-
-def get_vocoder(vocoder_name="vocos", load_from_local=False):
-    """Load vocoder using F5-TTS official API."""
-    try:
-        print(f"🔄 Loading vocoder: {vocoder_name}")
-        
-        if vocoder_name == "vocos":
-            vocoder_local_path = "../checkpoints/vocos-mel-24khz"
-        elif vocoder_name == "bigvgan":
-            vocoder_local_path = "../checkpoints/bigvgan_v2_24khz_100band_256x"
-        else:
-            vocoder_local_path = "../checkpoints/vocos-mel-24khz"
-        
-        vocoder = load_vocoder(
-            vocoder_name=vocoder_name,
-            is_local=load_from_local,
-            local_path=vocoder_local_path,
-            device=device
-        )
-        
-        print(f"✅ Vocoder loaded successfully: {vocoder_name}")
-        return vocoder
-        
-    except Exception as e:
-        print(f"❌ Error loading vocoder: {e}")
         import traceback
         traceback.print_exc()
         return None
@@ -132,13 +72,12 @@ def process_tts_job(job_id, text, speed, return_word_timings, local_voice):
         jobs[job_id]["status"] = "PROCESSING"
         print(f"🔄 Processing job {job_id}: '{text[:50]}...'")
 
-        # Load F5-TTS model and vocoder dynamically during inference
-        print("🔄 Loading F5-TTS model and vocoder...")
-        ema_model = get_f5_tts_model("F5TTS_v1_Base")
-        vocoder = get_vocoder("vocos")
+        # Load F5-TTS model dynamically during inference
+        print("🔄 Loading F5-TTS model...")
+        f5tts_model = get_f5_tts_model("F5TTS_v1_Base")
         
-        if not ema_model or not vocoder:
-            raise Exception("Failed to load F5-TTS model or vocoder")
+        if not f5tts_model:
+            raise Exception("Failed to load F5-TTS model")
 
         voice_path = None
         
@@ -193,43 +132,26 @@ def process_tts_job(job_id, text, speed, return_word_timings, local_voice):
             temp_files.append(temp_audio.name)
             
             try:
-                # Use the official F5-TTS inference API
-                print(f"🔄 Running F5-TTS inference with official API...")
+                # Use the modern F5-TTS API
+                print(f"🔄 Running F5-TTS inference with modern API...")
                 
                 # Ensure we have required parameters
                 if not voice_path:
                     raise Exception("Reference audio file is required for F5-TTS")
                 
-                # Preprocess reference audio and text (automatic transcription)
+                # Use F5TTS class infer method - automatic transcription (empty ref_text)
                 print(f"🎤 F5-TTS will use automatic transcription for reference audio")
-                ref_audio_processed, ref_text_processed = preprocess_ref_audio_text(
-                    voice_path, ""  # Empty string triggers automatic transcription
-                )
                 
-                print(f"✅ Reference audio preprocessed, auto-transcription enabled")
-                
-                # Use F5-TTS infer_process function directly like the CLI
-                audio_segment, final_sample_rate, spectrogram = infer_process(
-                    ref_audio_processed,
-                    ref_text_processed,
-                    text,  # Generation text
-                    ema_model,
-                    vocoder,
-                    mel_spec_type="vocos",
-                    target_rms=target_rms,
-                    cross_fade_duration=cross_fade_duration,
-                    nfe_step=nfe_step,
-                    cfg_strength=cfg_strength,
-                    sway_sampling_coef=sway_sampling_coef,
-                    speed=speed,
-                    fix_duration=fix_duration,
-                    device=device,
+                # Generate audio using F5TTS.infer method
+                wav, final_sample_rate, spectrogram = f5tts_model.infer(
+                    ref_file=voice_path,
+                    ref_text="",  # Empty string triggers automatic transcription
+                    gen_text=text,
+                    file_wave=temp_audio.name,  # Output file
+                    seed=None,
                 )
                 
                 print(f"✅ F5-TTS inference successful - sample_rate: {final_sample_rate}")
-                
-                # Save the generated audio
-                sf.write(temp_audio.name, audio_segment, final_sample_rate)
                 
                 # Verify output file was created
                 if not os.path.exists(temp_audio.name):
@@ -237,7 +159,7 @@ def process_tts_job(job_id, text, speed, return_word_timings, local_voice):
                 
                 # Get file info for logging
                 file_size = os.path.getsize(temp_audio.name)
-                total_duration = len(audio_segment) / final_sample_rate
+                total_duration = len(wav) / final_sample_rate
                 
                 print(f"✅ Audio generated: {total_duration:.2f}s, {file_size} bytes")
                 
