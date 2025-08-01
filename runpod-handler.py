@@ -51,8 +51,9 @@ def get_f5_tts_model(model_name="F5TTS_v1_Base"):
         if not F5TTS:
             raise Exception("F5TTS API not available")
         
-        # Initialize F5TTS model using the modern API
-        f5tts = F5TTS(model_name=model_name, device=device)
+        # Initialize F5TTS model using the correct API parameters
+        # F5TTS constructor parameters: model, ckpt_file, vocab_file, ode_method, use_ema, vocoder_local_path, device, hf_cache_dir
+        f5tts = F5TTS(model=model_name, device=device)
         
         print(f"✅ F5-TTS model loaded successfully: {model_name}")
         return f5tts

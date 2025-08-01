@@ -1,5 +1,16 @@
 # Engineering Journal
 
+## 2025-08-01 18:00
+
+### F5-TTS API Parameter Fix - Constructor Compatibility |TASK:TASK-2025-08-01-003|
+- **What**: Fixed TypeError in F5TTS constructor by changing parameter from `model_name` to `model` to match current API signature
+- **Why**: F5-TTS API constructor expects `model` parameter, not `model_name`, causing initialization failure with "unexpected keyword argument" error
+- **How**: Updated `runpod-handler.py:55` from `F5TTS(model_name=model_name, device=device)` to `F5TTS(model=model_name, device=device)` based on official F5-TTS API documentation
+- **Issues**: Previous modernization used incorrect parameter name causing runtime failure during model loading
+- **Result**: F5TTS model initialization now uses correct API parameters, resolving constructor compatibility issue
+
+---
+
 ## 2025-08-01 15:00
 
 ### F5-TTS API Modernization & Compatibility Fix |TASK:TASK-2025-08-01-002|
