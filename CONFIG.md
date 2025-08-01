@@ -17,6 +17,16 @@ AWS_ACCESS_KEY_ID=AKIAIOSFODNN7EXAMPLE        # AWS access key with S3 permissio
 AWS_SECRET_ACCESS_KEY=wJalrXUtnFEMI/K7MDENG   # AWS secret key
 ```
 
+### S3 Model Caching (Cold Start Optimization)
+```bash
+ENABLE_S3_MODEL_CACHE=true                    # Enable S3 model caching (default: true)
+```
+**Benefits**: 
+- **Faster Cold Starts**: Models download from S3 instead of HuggingFace (~10x faster)
+- **Reliable Storage**: Models persist across RunPod instances and container restarts
+- **Cost Effective**: Reduced bandwidth costs from repeated HuggingFace downloads
+- **Automatic Sync**: Models auto-upload to S3 after first download
+
 ### S3-Compatible Services (Backblaze B2, DigitalOcean Spaces, etc.)
 ```bash
 AWS_ENDPOINT_URL=https://s3.us-west-001.backblazeb2.com  # Custom S3 endpoint URL
@@ -27,8 +37,10 @@ AWS_ENDPOINT_URL=https://s3.us-west-001.backblazeb2.com  # Custom S3 endpoint UR
 AWS_REGION=us-east-1                          # AWS region (default: us-east-1)
 PYTORCH_CUDA_ALLOC_CONF=max_split_size_mb:512 # GPU memory optimization
 CUDA_VISIBLE_DEVICES=0                        # GPU device selection
-HF_HOME=/app/models                           # HuggingFace cache directory
-TRANSFORMERS_CACHE=/app/models                # Transformers model cache
+# HF_HOME - Set dynamically during startup (S3 cache > RunPod volume > local)
+# TRANSFORMERS_CACHE - Set dynamically during startup 
+# HF_HUB_CACHE - Set dynamically during startup
+# TORCH_HOME - Set dynamically during startup
 ```
 
 ### RunPod Auto-Provided
@@ -43,7 +55,7 @@ RUNPOD_ENDPOINT_ID                            # Auto-provided by RunPod
 - **Model Type**: `F5-TTS` (default model from official container)
 - **Sample Rate**: `22050` Hz (fixed for F5-TTS)
 - **Device**: Auto-detected (`cuda` if available, fallback to `cpu`)
-- **Cache Directory**: `/app/models` (set via environment variables)
+- **Cache Directory**: Dynamic (S3 cache > RunPod volume > local fallback)
 
 ### Performance Tuning Settings <!-- #performance-config -->
 ```python

@@ -44,16 +44,24 @@ except ImportError as e:
     F5TTS = None
 
 def get_f5_tts_model(model_name="F5TTS_v1_Base"):
-    """Load F5-TTS model using the modern F5TTS API."""
+    """Load F5-TTS model using the modern F5TTS API with explicit cache directory."""
     try:
         print(f"🔄 Loading F5-TTS model: {model_name}")
         
         if not F5TTS:
             raise Exception("F5TTS API not available")
         
-        # Initialize F5TTS model using the correct API parameters
+        # Use explicit cache directory for model loading
+        cache_dir = os.environ.get("HF_HOME", "/runpod-volume/models")
+        print(f"📂 Using cache directory: {cache_dir}")
+        
+        # Initialize F5TTS model with explicit cache directory
         # F5TTS constructor parameters: model, ckpt_file, vocab_file, ode_method, use_ema, vocoder_local_path, device, hf_cache_dir
-        f5tts = F5TTS(model=model_name, device=device)
+        f5tts = F5TTS(
+            model=model_name, 
+            device=device,
+            hf_cache_dir=cache_dir
+        )
         
         print(f"✅ F5-TTS model loaded successfully: {model_name}")
         return f5tts
@@ -378,89 +386,27 @@ def handler(job):
 if __name__ == "__main__":
     print("🚀 Starting F5-TTS RunPod serverless worker...")
     
-    # Sync models from S3 for faster cold starts if enabled
-    if os.environ.get("ENABLE_S3_MODEL_CACHE", "").lower() == "true":
-        print("📥 Syncing models from S3 for faster cold starts...")
-        try:
-            from s3_utils import sync_models_from_s3
-            print("✅ S3 sync function imported successfully")
-            
-            # Use cache directory priority from optimization
-            cache_dirs = [
-                "/tmp/models",            # More space (10-20GB+) - preferred
-                "/app/models",            # Container fallback
-                "/runpod-volume/models"   # Limited space - last resort
-            ]
-            
-            for cache_dir in cache_dirs:
-                try:
-                    if sync_models_from_s3(cache_dir):
-                        print(f"✅ Models synced from S3 to {cache_dir}")
-                        # Set environment variables for model loading
-                        os.environ["HF_HOME"] = cache_dir
-                        os.environ["TRANSFORMERS_CACHE"] = cache_dir
-                        break
-                except Exception as e:
-                    print(f"⚠️ Failed to sync to {cache_dir}: {e}")
-                    continue
-            else:
-                print("⚠️ S3 model sync failed for all cache directories")
-                
-        except ImportError as e:
-            print(f"⚠️ S3 sync function not available: {e}")
-            print("🔍 Available s3_utils functions:")
-            try:
-                import s3_utils
-                available_functions = [func for func in dir(s3_utils) if not func.startswith('_') and callable(getattr(s3_utils, func))]
-                print(f"   Functions: {available_functions}")
-            except Exception as debug_e:
-                print(f"   Failed to inspect s3_utils: {debug_e}")
-        except Exception as e:
-            print(f"⚠️ S3 model sync failed: {e}")
-            # Continue startup even if S3 sync fails
+    # Verify model cache directory is properly configured
+    model_cache_dir = os.environ.get("HF_HOME", "/runpod-volume/models")
+    print(f"📦 Using model cache directory: {model_cache_dir}")
+    
+    # Ensure the model cache directory exists
+    os.makedirs(model_cache_dir, exist_ok=True)
+    os.makedirs(f"{model_cache_dir}/hub", exist_ok=True)
+    os.makedirs(f"{model_cache_dir}/transformers", exist_ok=True)
+    os.makedirs(f"{model_cache_dir}/torch", exist_ok=True)
+    
+    # Verify environment variables are correctly set
+    print(f"🔧 HF_HOME: {os.environ.get('HF_HOME', 'NOT SET')}")
+    print(f"🔧 TRANSFORMERS_CACHE: {os.environ.get('TRANSFORMERS_CACHE', 'NOT SET')}")
+    print(f"🔧 HF_HUB_CACHE: {os.environ.get('HF_HUB_CACHE', 'NOT SET')}")
+    print(f"🔧 TORCH_HOME: {os.environ.get('TORCH_HOME', 'NOT SET')}")
     
     # Note: F5-TTS models are loaded dynamically during inference for better resource management
     print("ℹ️ F5-TTS models will be loaded dynamically during inference for optimal resource usage")
     
-    # Upload models to S3 for persistence if enabled
-    if os.environ.get("ENABLE_S3_MODEL_CACHE", "").lower() == "true":
-        print("☁️ Uploading models to S3 for persistence...")
-        try:
-            from s3_utils import upload_models_to_s3
-            print("✅ S3 upload function imported successfully")
-            
-            # Try multiple model cache directories
-            model_dirs = [
-                os.environ.get("HF_HOME", "/tmp/models"),
-                os.environ.get("TRANSFORMERS_CACHE", "/tmp/models"),
-                "/tmp/models",
-                "/app/models",
-                "/runpod-volume/models"
-            ]
-            
-            for model_dir in model_dirs:
-                if os.path.exists(model_dir) and os.listdir(model_dir):
-                    print(f"📦 Found models in {model_dir}, uploading to S3...")
-                    if upload_models_to_s3(model_dir):
-                        print(f"✅ Models uploaded from {model_dir}")
-                        break
-                    else:
-                        print(f"⚠️ Failed to upload models from {model_dir}")
-            else:
-                print("⚠️ No model directories found with content to upload")
-                
-        except ImportError as e:
-            print(f"⚠️ S3 upload function not available: {e}")
-            print("🔍 Available s3_utils functions:")
-            try:
-                import s3_utils
-                available_functions = [func for func in dir(s3_utils) if not func.startswith('_') and callable(getattr(s3_utils, func))]
-                print(f"   Functions: {available_functions}")
-            except Exception as debug_e:
-                print(f"   Failed to inspect s3_utils: {debug_e}")
-        except Exception as e:
-            print(f"⚠️ S3 model upload failed: {e}")
-            # Continue startup even if S3 upload fails
+    # Models are now stored persistently in /runpod-volume - no S3 sync needed
+    print("✅ Models stored in persistent /runpod-volume/models - no S3 sync required")
     
     print("✅ F5-TTS RunPod serverless worker ready!")
     runpod.serverless.start({"handler": handler})

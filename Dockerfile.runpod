@@ -13,23 +13,40 @@ RUN pip install --no-cache-dir \
 # Copy our serverless handler and utilities
 COPY runpod-handler.py /app/runpod-handler.py
 COPY s3_utils.py /app/s3_utils.py
-COPY model_cache_init.py /app/model_cache_init.py
+# model_cache_init.py no longer needed - environment variables set directly
 
-# Create model cache directories
-RUN mkdir -p /app/models /runpod-volume/models
+# Create proper model cache directory structure in /runpod-volume
+RUN mkdir -p /runpod-volume/models/hub \
+             /runpod-volume/models/transformers \
+             /runpod-volume/models/torch \
+             /runpod-volume/models/f5-tts
 
 # Set environment variables for optimal performance
 ENV PYTORCH_CUDA_ALLOC_CONF=max_split_size_mb:512
 ENV CUDA_VISIBLE_DEVICES=0
 
-# Use RunPod persistent volume for model caching (fallback to local if not available)
+# CRITICAL: Set all model cache paths to /runpod-volume (persistent storage)
 ENV HF_HOME=/runpod-volume/models
-ENV TRANSFORMERS_CACHE=/runpod-volume/models
+ENV TRANSFORMERS_CACHE=/runpod-volume/models/transformers
 ENV HF_HUB_CACHE=/runpod-volume/models/hub
 ENV TORCH_HOME=/runpod-volume/models/torch
 
-# Create symlink for backward compatibility  
+# Pre-load F5-TTS models during build to /runpod-volume for faster cold starts
+RUN python -c "
+import os, sys
+sys.path.append('/app')
+print('🔄 Pre-loading F5-TTS models to /runpod-volume/models...')
+try:
+    from f5_tts.model import F5TTS
+    # Initialize F5TTS to trigger model download to correct cache location
+    model = F5TTS('F5TTS_v1_Base', device='cpu')
+    print('✅ F5-TTS models pre-loaded successfully')
+except Exception as e:
+    print(f'⚠️ Model pre-loading failed (will load at runtime): {e}')
+"
+
+# Create fallback symlink for compatibility
 RUN ln -sf /runpod-volume/models /app/models || true
 
-# Initialize model cache and start the serverless worker
-CMD ["sh", "-c", "python /app/model_cache_init.py && python -u /app/runpod-handler.py"]
+# Start the serverless worker (models pre-loaded, environment configured)
+CMD ["python", "-u", "/app/runpod-handler.py"]

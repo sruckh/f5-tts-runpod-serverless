@@ -1,5 +1,6 @@
 import boto3
 import os
+from datetime import datetime, timezone
 from botocore.exceptions import ClientError, NoCredentialsError
 
 # S3 configuration from environment variables
@@ -101,3 +102,38 @@ def download_from_s3(object_name, file_path):
     except Exception as e:
         print(f"❌ Download error: {e}")
         return None
+
+# Model syncing functions removed - models now stored persistently in /runpod-volume
+# S3 is used only for voice files (input) and generated audio (output)
+
+def list_s3_objects(prefix=""):
+    """List objects in S3 bucket with optional prefix filter."""
+    if not s3_client or not S3_BUCKET:
+        print("❌ S3 not configured properly")
+        return []
+    
+    try:
+        response = s3_client.list_objects_v2(Bucket=S3_BUCKET, Prefix=prefix)
+        if 'Contents' in response:
+            return [obj['Key'] for obj in response['Contents']]
+        return []
+    except Exception as e:
+        print(f"❌ Error listing S3 objects: {e}")
+        return []
+
+def check_s3_object_exists(object_name):
+    """Check if an object exists in S3 bucket."""
+    if not s3_client or not S3_BUCKET:
+        return False
+    
+    try:
+        s3_client.head_object(Bucket=S3_BUCKET, Key=object_name)
+        return True
+    except ClientError as e:
+        if e.response['Error']['Code'] == 'NoSuchKey':
+            return False
+        print(f"❌ Error checking S3 object: {e}")
+        return False
+    except Exception as e:
+        print(f"❌ Error checking S3 object: {e}")
+        return False
