@@ -32,17 +32,16 @@ ENV HF_HUB_CACHE=/runpod-volume/models/hub
 ENV TORCH_HOME=/runpod-volume/models/torch
 
 # Pre-load F5-TTS models during build to /runpod-volume for faster cold starts
-RUN python -c "
-import os, sys
-sys.path.append('/app')
-print('🔄 Pre-loading F5-TTS models to /runpod-volume/models...')
-try:
-    from f5_tts.model import F5TTS
-    # Initialize F5TTS to trigger model download to correct cache location
-    model = F5TTS('F5TTS_v1_Base', device='cpu')
-    print('✅ F5-TTS models pre-loaded successfully')
-except Exception as e:
-    print(f'⚠️ Model pre-loading failed (will load at runtime): {e}')
+RUN python -c "\
+import os, sys; \
+sys.path.append('/app'); \
+print('🔄 Pre-loading F5-TTS models to /runpod-volume/models...'); \
+try: \
+    from f5_tts.model import F5TTS; \
+    model = F5TTS('F5TTS_v1_Base', device='cpu'); \
+    print('✅ F5-TTS models pre-loaded successfully'); \
+except Exception as e: \
+    print(f'⚠️ Model pre-loading failed (will load at runtime): {e}'); \
 "
 
 # Create fallback symlink for compatibility

@@ -1,5 +1,23 @@
 # Engineering Journal
 
+## 2025-08-01 22:30
+
+### Dockerfile RUN Command Syntax Fix |TASK:TASK-2025-08-01-005|
+- **What**: Fixed Docker build failure caused by incorrect multi-line RUN command syntax in Dockerfile.runpod
+- **Why**: Docker build was failing with "dockerfile parse error on line 36: unknown instruction: import" due to improper multi-line Python code formatting in RUN command
+- **How**: 
+  - **Root Cause**: Multi-line Python code in RUN command (lines 35-46) was not properly escaped for Dockerfile syntax
+  - **Original Issue**: Python statements separated by newlines without proper line continuation
+  - **Solution Applied**: Converted multi-line Python block to single-line format with:
+    - Line continuations using backslashes (`\`)
+    - Python statement separation using semicolons (`;`) instead of newlines
+    - Proper string escaping for Dockerfile context
+  - **Code Change**: `Dockerfile.runpod:35-45` - Reformed RUN command for F5-TTS model pre-loading
+- **Issues**: None - straightforward syntax fix
+- **Result**: Docker build now functional, F5-TTS model pre-loading preserved for fast cold starts
+
+---
+
 ## 2025-08-01 19:30
 
 ### F5-TTS Storage Architecture - Critical Infrastructure Overhaul |TASK:TASK-2025-08-01-004|
