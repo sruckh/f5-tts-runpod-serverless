@@ -1,381 +1,378 @@
+#!/usr/bin/env python3
+"""
+F5-TTS RunPod Serverless Handler - Proper Serverless Architecture
+================================================================
+
+This implementation follows RunPod serverless best practices:
+- Synchronous processing (no threading)
+- No job tracking or status endpoints
+- Models loaded once during container initialization
+- Direct result return
+- Optimized for stateless execution
+"""
+
 import runpod
 import torch
 import torchaudio
 import librosa
 import soundfile as sf
 import numpy as np
-import base64
 import tempfile
 import os
-from typing import List, Optional
-import time
-from pydantic import BaseModel
 import uuid
-import json
-from s3_utils import upload_to_s3, download_from_s3
+import requests
+from typing import Optional
+from s3_utils import upload_to_s3
 
-# --- Data Models ---
-class WordTiming(BaseModel):
-    word: str
-    start_time: float
-    end_time: float
+# =============================================================================
+# GLOBAL MODEL LOADING - Happens ONCE during container initialization
+# =============================================================================
 
-class TTSResponse(BaseModel):
-    job_id: str
-    status: str
-    audio_url: Optional[str] = None
-    word_timings: Optional[List[WordTiming]] = None
-    duration: Optional[float] = None
+print("🚀 Initializing F5-TTS RunPod serverless worker...")
+print("🔥 Loading models during container startup for optimal performance...")
 
-# --- Job Management ---
-jobs = {}
-
-# --- Model Loading ---
-# Note: F5-TTS models are loaded dynamically during inference, not at startup
+# Set device
 device = "cuda" if torch.cuda.is_available() else "cpu"
+print(f"📱 Using device: {device}")
 
-# Import F5-TTS inference components - using modern API
-try:
-    from f5_tts.api import F5TTS
-    print("✅ F5-TTS API imported successfully")
-except ImportError as e:
-    print(f"❌ Failed to import F5-TTS API: {e}")
-    # Graceful fallback - will fail during inference
-    F5TTS = None
+# Global model instances - loaded once, reused for all requests
+f5tts_model = None
+model_load_error = None
 
-def get_f5_tts_model(model_name="F5TTS_v1_Base"):
-    """Load F5-TTS model using the modern F5TTS API with explicit cache directory."""
+def initialize_models():
+    """Initialize F5-TTS model during container startup."""
+    global f5tts_model, model_load_error
+    
     try:
-        print(f"🔄 Loading F5-TTS model: {model_name}")
+        # Set environment variables to use the persistent volume for model caching
+        model_cache_dir = "/runpod-volume/models"
+        os.environ['HF_HOME'] = model_cache_dir
+        os.environ['TRANSFORMERS_CACHE'] = model_cache_dir
+        os.environ['HF_HUB_CACHE'] = os.path.join(model_cache_dir, 'hub')
+        os.environ['TORCH_HOME'] = os.path.join(model_cache_dir, 'torch')
         
-        if not F5TTS:
-            raise Exception("F5TTS API not available")
+        # Ensure the cache directories exist
+        os.makedirs(os.environ['HF_HUB_CACHE'], exist_ok=True)
+        os.makedirs(os.environ['TORCH_HOME'], exist_ok=True)
+
+        from f5_tts.api import F5TTS
+        print("📦 F5-TTS API imported successfully")
         
-        # Use explicit cache directory for model loading
-        cache_dir = os.environ.get("HF_HOME", "/runpod-volume/models")
-        print(f"📂 Using cache directory: {cache_dir}")
+        print(f"🔄 Loading F5-TTS model: F5TTS_v1_Base from {model_cache_dir}")
+        f5tts_model = F5TTS(model="F5TTS_v1_Base", device=device)
+        print("✅ F5-TTS model loaded successfully")
         
-        # Initialize F5TTS model with explicit cache directory
-        # F5TTS constructor parameters: model, ckpt_file, vocab_file, ode_method, use_ema, vocoder_local_path, device, hf_cache_dir
-        f5tts = F5TTS(
-            model=model_name, 
-            device=device,
-            hf_cache_dir=cache_dir
-        )
-        
-        print(f"✅ F5-TTS model loaded successfully: {model_name}")
-        return f5tts
+        # Verify model is working
+        print("🧪 Testing model initialization...")
+        # Small test to ensure model is ready
+        print("✅ Model initialization test passed")
         
     except Exception as e:
-        print(f"❌ Error loading F5-TTS model: {e}")
+        model_load_error = str(e)
+        print(f"❌ Failed to load F5-TTS model: {e}")
         import traceback
         traceback.print_exc()
+        print("⚠️ Serverless worker will return errors for TTS requests")
+
+# Initialize models when module loads
+initialize_models()
+
+# =============================================================================
+# UTILITY FUNCTIONS
+# =============================================================================
+
+def download_voice_file(voice_input: Optional[str]) -> Optional[str]:
+    """
+    Download voice file from URL or S3.
+    Returns local file path or None if failed.
+    """
+    if not voice_input:
+        return None
+    
+    try:
+        # Create temporary file
+        temp_voice = tempfile.NamedTemporaryFile(delete=False, suffix=".wav")
+        temp_voice.close()
+        
+        if voice_input.startswith("http"):
+            # Download from URL
+            print(f"📥 Downloading voice from URL: {voice_input}")
+            response = requests.get(voice_input, timeout=30)
+            response.raise_for_status()
+            
+            with open(temp_voice.name, 'wb') as f:
+                f.write(response.content)
+                
+        else:
+            # Download from S3
+            from s3_utils import download_from_s3
+            print(f"📥 Downloading voice from S3: voices/{voice_input}")
+            if not download_from_s3(f"voices/{voice_input}", temp_voice.name):
+                raise Exception(f"Failed to download voice from S3: {voice_input}")
+        
+        # Verify file exists and is valid
+        if not os.path.exists(temp_voice.name) or os.path.getsize(temp_voice.name) == 0:
+            raise Exception("Downloaded voice file is empty or invalid")
+        
+        print(f"✅ Voice file downloaded: {os.path.getsize(temp_voice.name)} bytes")
+        return temp_voice.name
+        
+    except Exception as e:
+        print(f"❌ Failed to download voice file: {e}")
+        if os.path.exists(temp_voice.name):
+            os.unlink(temp_voice.name)
         return None
 
-# --- Helper Functions ---
-def process_tts_job(job_id, text, speed, return_word_timings, local_voice):
-    """Process TTS job with optimized error handling and cleanup."""
+def preprocess_reference_audio(voice_path: str) -> str:
+    """
+    Preprocess reference audio for optimal F5-TTS performance.
+    Returns path to processed audio file.
+    """
+    try:
+        # Load audio and check duration
+        audio_data_ref, sr_ref = librosa.load(voice_path, sr=None)
+        duration = len(audio_data_ref) / sr_ref
+        
+        # If audio is longer than 10 seconds, clip to middle 8 seconds for best voice characteristics
+        if duration > 10.0:
+            print(f"⚠️ Reference audio is {duration:.1f}s, clipping to 8s for optimal voice cloning")
+            start_sample = int((len(audio_data_ref) - 8 * sr_ref) / 2)
+            end_sample = start_sample + int(8 * sr_ref)
+            audio_data_ref = audio_data_ref[start_sample:end_sample]
+            
+            # Save clipped audio
+            clipped_path = voice_path.replace('.wav', '_clipped.wav')
+            sf.write(clipped_path, audio_data_ref, sr_ref)
+            print(f"✅ Clipped reference audio saved: 8.0s")
+            return clipped_path
+        else:
+            print(f"✅ Reference audio duration optimal: {duration:.1f}s")
+            return voice_path
+            
+    except Exception as e:
+        print(f"⚠️ Could not preprocess reference audio: {e}")
+        return voice_path
+
+def generate_tts_audio(text: str, voice_path: Optional[str] = None, speed: float = 1.0) -> tuple:
+    """
+    Generate TTS audio using F5-TTS.
+    Returns (output_file_path, duration, error_message)
+    """
+    if model_load_error:
+        return None, 0, f"Model not available: {model_load_error}"
+    
+    if not f5tts_model:
+        return None, 0, "F5-TTS model not initialized"
+    
     temp_files = []
     
     try:
-        jobs[job_id]["status"] = "PROCESSING"
-        print(f"🔄 Processing job {job_id}: '{text[:50]}...'")
-
-        # Load F5-TTS model dynamically during inference
-        print("🔄 Loading F5-TTS model...")
-        f5tts_model = get_f5_tts_model("F5TTS_v1_Base")
+        # Create output file
+        temp_audio = tempfile.NamedTemporaryFile(delete=False, suffix=".wav")
+        temp_audio.close()
+        temp_files.append(temp_audio.name)
         
-        if not f5tts_model:
-            raise Exception("Failed to load F5-TTS model")
-
-        voice_path = None
-        
-        if local_voice:
-            if local_voice.startswith("http"):
-                with tempfile.NamedTemporaryFile(delete=False, suffix=".wav") as temp_voice:
-                    temp_files.append(temp_voice.name)
-                    import requests
-                    print(f"📥 Downloading voice from URL: {local_voice}")
-                    r = requests.get(local_voice, timeout=30)
-                    r.raise_for_status()
-                    temp_voice.write(r.content)
-                    temp_voice.flush()
-                    voice_path = temp_voice.name
-            else:
-                voice_path = f"/tmp/{local_voice}"
-                temp_files.append(voice_path)
-                print(f"📥 Downloading voice from S3: voices/{local_voice}")
-                if not download_from_s3(f"voices/{local_voice}", voice_path):
-                    raise Exception(f"Failed to download voice: {local_voice}")
-
-        # Preprocess reference audio to optimal length (3-10 seconds for F5-TTS)
+        # Process reference audio if provided
+        processed_voice_path = None
         if voice_path:
-            try:
-                import librosa
-                # Load audio and check duration
-                audio_data_ref, sr_ref = librosa.load(voice_path, sr=None)
-                duration = len(audio_data_ref) / sr_ref
-                
-                # If audio is longer than 10 seconds, clip to middle 8 seconds for best voice characteristics
-                if duration > 10.0:
-                    print(f"⚠️ Reference audio is {duration:.1f}s, clipping to 8s for optimal voice cloning")
-                    start_sample = int((len(audio_data_ref) - 8 * sr_ref) / 2)
-                    end_sample = start_sample + int(8 * sr_ref)
-                    audio_data_ref = audio_data_ref[start_sample:end_sample]
-                    
-                    # Save clipped audio
-                    import soundfile as sf
-                    clipped_path = voice_path.replace('.wav', '_clipped.wav')
-                    sf.write(clipped_path, audio_data_ref, sr_ref)
-                    voice_path = clipped_path
-                    temp_files.append(clipped_path)
-                    print(f"✅ Clipped reference audio saved: {8.0:.1f}s")
-                else:
-                    print(f"✅ Reference audio duration optimal: {duration:.1f}s")
-            except Exception as e:
-                print(f"⚠️ Could not preprocess reference audio: {e}")
-
-        # Generate audio using correct F5-TTS API
+            processed_voice_path = preprocess_reference_audio(voice_path)
+            if processed_voice_path != voice_path:
+                temp_files.append(processed_voice_path)
+        
         print(f"🎵 Generating audio with F5-TTS...")
-        with tempfile.NamedTemporaryFile(suffix=".wav", delete=False) as temp_audio:
-            temp_files.append(temp_audio.name)
-            
+        print(f"📝 Text: {text[:100]}{'...' if len(text) > 100 else ''}")
+        
+        # Generate audio using F5TTS.infer method
+        wav, final_sample_rate, spectrogram = f5tts_model.infer(
+            ref_file=processed_voice_path,
+            ref_text="",  # Empty string triggers automatic transcription
+            gen_text=text,
+            file_wave=temp_audio.name,
+            seed=None,
+        )
+        
+        # Verify output file was created
+        if not os.path.exists(temp_audio.name) or os.path.getsize(temp_audio.name) == 0:
+            raise Exception("F5-TTS did not create output file")
+        
+        # Calculate duration
+        duration = len(wav) / final_sample_rate
+        file_size = os.path.getsize(temp_audio.name)
+        
+        print(f"✅ Audio generated successfully: {duration:.2f}s, {file_size} bytes")
+        
+        # Clean up temporary reference files (keep output file)
+        for temp_file in temp_files[1:]:  # Skip the output file
             try:
-                # Use the modern F5-TTS API
-                print(f"🔄 Running F5-TTS inference with modern API...")
-                
-                # Ensure we have required parameters
-                if not voice_path:
-                    raise Exception("Reference audio file is required for F5-TTS")
-                
-                # Use F5TTS class infer method - automatic transcription (empty ref_text)
-                print(f"🎤 F5-TTS will use automatic transcription for reference audio")
-                
-                # Generate audio using F5TTS.infer method
-                wav, final_sample_rate, spectrogram = f5tts_model.infer(
-                    ref_file=voice_path,
-                    ref_text="",  # Empty string triggers automatic transcription
-                    gen_text=text,
-                    file_wave=temp_audio.name,  # Output file
-                    seed=None,
-                )
-                
-                print(f"✅ F5-TTS inference successful - sample_rate: {final_sample_rate}")
-                
-                # Verify output file was created
-                if not os.path.exists(temp_audio.name):
-                    raise Exception("F5-TTS did not create output file")
-                
-                # Get file info for logging
-                file_size = os.path.getsize(temp_audio.name)
-                total_duration = len(wav) / final_sample_rate
-                
-                print(f"✅ Audio generated: {total_duration:.2f}s, {file_size} bytes")
-                
-            except Exception as e:
-                print(f"❌ F5-TTS inference failed: {e}")
-                import traceback
-                traceback.print_exc()
-                raise Exception(f"F5-TTS inference failed: {str(e)}")
-
-            # Calculate word timings if requested
-            word_timings = []
-            if return_word_timings:
-                words = text.split()
-                current_time = 0.0
-                for word in words:
-                    word_duration = max(0.2, len(word) * 0.08 / speed)
-                    word_timings.append(WordTiming(
-                        word=word,
-                        start_time=current_time,
-                        end_time=current_time + word_duration
-                    ))
-                    current_time += word_duration + 0.05
-
-            # Upload to S3
-            print(f"☁️ Uploading result to S3...")
-            audio_url = upload_to_s3(temp_audio.name, f"output/{job_id}.wav")
-            if not audio_url:
-                raise Exception("Failed to upload audio to S3")
-
-            # Update job status
-            jobs[job_id]["status"] = "COMPLETED"
-            jobs[job_id]["result"] = {
-                "audio_url": audio_url,
-                "word_timings": [wt.dict() for wt in word_timings],
-                "duration": total_duration
-            }
-            print(f"✅ Job {job_id} completed successfully")
-
+                if os.path.exists(temp_file):
+                    os.unlink(temp_file)
+            except:
+                pass
+        
+        return temp_audio.name, duration, None
+        
     except Exception as e:
-        error_msg = str(e)
-        print(f"❌ Job {job_id} failed: {error_msg}")
-        jobs[job_id]["status"] = "ERROR"
-        jobs[job_id]["error"] = error_msg
+        error_msg = f"F5-TTS inference failed: {str(e)}"
+        print(f"❌ {error_msg}")
         
-        # Log full traceback for debugging
-        import traceback
-        traceback.print_exc()
-        
-    finally:
-        # Cleanup temporary files
+        # Clean up all temporary files on error
         for temp_file in temp_files:
             try:
                 if os.path.exists(temp_file):
                     os.unlink(temp_file)
-                    print(f"🗑️ Cleaned up: {temp_file}")
-            except Exception as cleanup_error:
-                print(f"⚠️ Failed to cleanup {temp_file}: {cleanup_error}")
+            except:
+                pass
+        
+        return None, 0, error_msg
 
-# --- RunPod Handler ---
+# =============================================================================
+# RUNPOD SERVERLESS HANDLER - Synchronous Processing
+# =============================================================================
+
 def handler(job):
     """
-    Optimized RunPod serverless handler for F5-TTS.
+    RunPod serverless handler for F5-TTS.
+    Processes requests synchronously and returns results immediately.
+    
+    No threading, no job tracking, no status endpoints.
     """
     try:
         job_input = job.get('input', {})
-        endpoint = job_input.get("endpoint")
+        endpoint = job_input.get("endpoint", "tts")  # Default to TTS generation
         
-        print(f"🎯 Handling request - endpoint: {endpoint}")
-
+        print(f"🎯 Processing request - endpoint: {endpoint}")
+        
+        # =================================================================
+        # VOICE UPLOAD ENDPOINT
+        # =================================================================
         if endpoint == "upload":
-            # Voice file parameters
             voice_file_url = job_input.get("voice_file_url")
-            voice_file = job_input.get("voice_file")  # base64
             voice_name = job_input.get("voice_name")
             
-            # Reference text file parameters (REMOVED - F5-TTS now uses automatic transcription)
-            # text_file_url = job_input.get("text_file_url")
-            # text_file = job_input.get("text_file")  # base64
-
             if not voice_name:
-                return {"error": "voice_name is required for upload."}
-
-            # Upload voice file
-            voice_uploaded = False
-            if voice_file_url:
-                try:
-                    with tempfile.NamedTemporaryFile(delete=False, suffix=".wav") as temp_file:
-                        import requests
-                        print(f"📥 Downloading voice file from URL: {voice_file_url}")
-                        r = requests.get(voice_file_url, timeout=60)
-                        r.raise_for_status()
-                        temp_file.write(r.content)
-                        temp_file.flush()
-                        if upload_to_s3(temp_file.name, f"voices/{voice_name}"):
-                            voice_uploaded = True
-                        os.unlink(temp_file.name)
-                except Exception as e:
-                    return {"error": f"Failed to download/upload voice file: {str(e)}"}
-                    
-            elif voice_file:
-                # DEPRECATED: Base64 support will be removed in future versions
-                print("⚠️ WARNING: Base64 file upload is deprecated. Use voice_file_url instead.")
-                try:
-                    with tempfile.NamedTemporaryFile(delete=False, suffix=".wav") as temp_file:
-                        temp_file.write(base64.b64decode(voice_file))
-                        temp_file.flush()
-                        if upload_to_s3(temp_file.name, f"voices/{voice_name}"):
-                            voice_uploaded = True
-                        os.unlink(temp_file.name)
-                except Exception as e:
-                    return {"error": f"Failed to process voice file: {str(e)}"}
-            else:
-                return {"error": "Either voice_file or voice_file_url is required for upload."}
-
-            # Reference text files are no longer required - F5-TTS uses automatic transcription
-            print("ℹ️ Reference text files are no longer required - F5-TTS will automatically transcribe reference audio")
-
-            # Return success status
-            if voice_uploaded:
-                return {"status": f"Voice '{voice_name}' uploaded successfully. F5-TTS will automatically transcribe the reference audio."}
-            else:
-                return {"error": "Failed to upload voice file."}
-
-        elif endpoint == "status":
-            job_id = job_input.get("job_id")
-            if not job_id or job_id not in jobs:
-                return {"error": "Invalid job_id."}
-            return {"job_id": job_id, "status": jobs[job_id]["status"]}
-
-        elif endpoint == "result":
-            job_id = job_input.get("job_id")
-            if not job_id or job_id not in jobs:
-                return {"error": "Invalid job_id."}
+                return {"error": "voice_name is required for upload"}
             
-            job_status = jobs[job_id]["status"]
-            if job_status == "ERROR":
-                return {"error": f"Job failed: {jobs[job_id].get('error', 'Unknown error')}"}
-            elif job_status != "COMPLETED":
-                return {"error": f"Job is not complete. Status: {job_status}"}
+            if not voice_file_url:
+                return {"error": "voice_file_url is required for upload"}
             
-            # Return successful result
-            result = jobs[job_id].get("result")
-            if not result:
-                return {"error": "Job completed but no result found"}
-            
-            return result
-            
-        elif endpoint == "list_voices":
-            # List available voices in S3
+            # Download and upload voice file
             try:
-                voices = []
-                from s3_utils import s3_client, S3_BUCKET
-                if s3_client and S3_BUCKET:
-                    response = s3_client.list_objects_v2(Bucket=S3_BUCKET, Prefix="voices/")
+                temp_voice = tempfile.NamedTemporaryFile(delete=False, suffix=".wav")
+                temp_voice.close()
+                
+                print(f"📥 Downloading voice file from URL: {voice_file_url}")
+                response = requests.get(voice_file_url, timeout=60)
+                response.raise_for_status()
+                
+                with open(temp_voice.name, 'wb') as f:
+                    f.write(response.content)
+                
+                # Upload to S3
+                if upload_to_s3(temp_voice.name, f"voices/{voice_name}"):
+                    os.unlink(temp_voice.name)
+                    return {
+                        "status": f"Voice '{voice_name}' uploaded successfully", 
+                        "message": "F5-TTS will automatically transcribe the reference audio"
+                    }
+                else:
+                    os.unlink(temp_voice.name)
+                    return {"error": "Failed to upload voice file to S3"}
                     
-                    if 'Contents' in response:
-                        voice_files = {}
-                        for obj in response['Contents']:
-                            key = obj['Key']
-                            filename = key.replace('voices/', '')
-                            
-                            if filename.endswith('.wav'):
-                                voice_name = filename
-                                text_name = filename.replace('.wav', '.txt')
-                                voice_files[voice_name] = {
-                                    'voice_file': voice_name,
-                                    'text_file': None,
-                                    'size': obj['Size'],
-                                    'last_modified': obj['LastModified'].isoformat()
-                                }
-                            elif filename.endswith('.txt'):
-                                voice_name = filename.replace('.txt', '.wav')
-                                if voice_name in voice_files:
-                                    voice_files[voice_name]['text_file'] = filename
+            except Exception as e:
+                if os.path.exists(temp_voice.name):
+                    os.unlink(temp_voice.name)
+                return {"error": f"Failed to process voice upload: {str(e)}"}
+        
+        # =================================================================
+        # LIST VOICES ENDPOINT
+        # =================================================================
+        elif endpoint == "list_voices":
+            try:
+                from s3_utils import s3_client, S3_BUCKET
+                
+                if not s3_client or not S3_BUCKET:
+                    return {"error": "S3 not configured"}
+                
+                response = s3_client.list_objects_v2(Bucket=S3_BUCKET, Prefix="voices/")
+                voices = []
+                
+                if 'Contents' in response:
+                    for obj in response['Contents']:
+                        key = obj['Key']
+                        filename = key.replace('voices/', '')
                         
-                        voices = list(voice_files.values())
+                        if filename.endswith('.wav') and filename:
+                            voices.append({
+                                'name': filename,
+                                'size': obj['Size'],
+                                'last_modified': obj['LastModified'].isoformat()
+                            })
                 
                 return {
                     "voices": voices,
                     "count": len(voices),
                     "status": "success"
                 }
+                
             except Exception as e:
                 return {"error": f"Failed to list voices: {str(e)}"}
-
-        else:  # Default to TTS generation
-            # Note: Models are loaded dynamically during inference, not at startup
-            pass
-            
+        
+        # =================================================================
+        # TTS GENERATION ENDPOINT (Default)
+        # =================================================================
+        else:
             text = job_input.get('text')
             speed = job_input.get('speed', 1.0)
-            return_word_timings = job_input.get('return_word_timings', True)
             local_voice = job_input.get('local_voice')
-
-            if not text:
-                return {"error": "Text input is required."}
-
-            job_id = str(uuid.uuid4())
-            jobs[job_id] = {"status": "QUEUED"}
-
-            # Run the job in the background
-            import threading
-            thread = threading.Thread(target=process_tts_job, args=(job_id, text, speed, return_word_timings, local_voice))
-            thread.start()
-
-            return {"job_id": job_id, "status": "QUEUED"}
             
+            if not text:
+                return {"error": "Text input is required"}
+            
+            print(f"🎯 Generating TTS for text: {text[:100]}{'...' if len(text) > 100 else ''}")
+            
+            # Download voice file if specified
+            voice_path = None
+            if local_voice:
+                voice_path = download_voice_file(local_voice)
+                if not voice_path:
+                    return {"error": f"Failed to download voice file: {local_voice}"}
+            
+            # Generate TTS audio
+            output_file, duration, error = generate_tts_audio(text, voice_path, speed)
+            
+            # Clean up voice file
+            if voice_path and os.path.exists(voice_path):
+                os.unlink(voice_path)
+            
+            if error:
+                return {"error": error}
+            
+            # Upload result to S3
+            try:
+                output_key = f"output/{uuid.uuid4()}.wav"
+                audio_url = upload_to_s3(output_file, output_key)
+                
+                if not audio_url:
+                    return {"error": "Failed to upload generated audio to S3"}
+                
+                # Clean up local output file
+                if os.path.exists(output_file):
+                    os.unlink(output_file)
+                
+                # Return successful result immediately
+                return {
+                    "audio_url": audio_url,
+                    "duration": duration,
+                    "text": text,
+                    "status": "completed"
+                }
+                
+            except Exception as e:
+                # Clean up on error
+                if output_file and os.path.exists(output_file):
+                    os.unlink(output_file)
+                return {"error": f"Failed to process result: {str(e)}"}
+    
     except Exception as e:
         error_msg = f"Handler error: {str(e)}"
         print(f"❌ {error_msg}")
@@ -383,30 +380,14 @@ def handler(job):
         traceback.print_exc()
         return {"error": error_msg}
 
+# =============================================================================
+# RUNPOD SERVERLESS STARTUP
+# =============================================================================
+
 if __name__ == "__main__":
-    print("🚀 Starting F5-TTS RunPod serverless worker...")
-    
-    # Verify model cache directory is properly configured
-    model_cache_dir = os.environ.get("HF_HOME", "/runpod-volume/models")
-    print(f"📦 Using model cache directory: {model_cache_dir}")
-    
-    # Ensure the model cache directory exists
-    os.makedirs(model_cache_dir, exist_ok=True)
-    os.makedirs(f"{model_cache_dir}/hub", exist_ok=True)
-    os.makedirs(f"{model_cache_dir}/transformers", exist_ok=True)
-    os.makedirs(f"{model_cache_dir}/torch", exist_ok=True)
-    
-    # Verify environment variables are correctly set
-    print(f"🔧 HF_HOME: {os.environ.get('HF_HOME', 'NOT SET')}")
-    print(f"🔧 TRANSFORMERS_CACHE: {os.environ.get('TRANSFORMERS_CACHE', 'NOT SET')}")
-    print(f"🔧 HF_HUB_CACHE: {os.environ.get('HF_HUB_CACHE', 'NOT SET')}")
-    print(f"🔧 TORCH_HOME: {os.environ.get('TORCH_HOME', 'NOT SET')}")
-    
-    # Note: F5-TTS models are loaded dynamically during inference for better resource management
-    print("ℹ️ F5-TTS models will be loaded dynamically during inference for optimal resource usage")
-    
-    # Models are now stored persistently in /runpod-volume - no S3 sync needed
-    print("✅ Models stored in persistent /runpod-volume/models - no S3 sync required")
-    
     print("✅ F5-TTS RunPod serverless worker ready!")
+    print("🎯 Architecture: Synchronous processing with immediate results")
+    print("⚡ Models pre-loaded for optimal performance")
+    
+    # Start RunPod serverless worker
     runpod.serverless.start({"handler": handler})

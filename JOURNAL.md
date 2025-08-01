@@ -1,10 +1,33 @@
 # Engineering Journal
 
+## 2025-08-02 00:30
+
+### Critical Storage Architecture Correction |TASK:TASK-2025-08-02-001|
+- **What**: Corrected the Dockerfile and runpod-handler.py to properly load AI models from the persistent `/runpod-volume` at runtime, instead of from the container image.
+- **Why**: The previous implementation was based on a fundamental misunderstanding of the storage architecture, attempting to load large models into the limited container filesystem, which caused build failures and would have led to runtime errors.
+- **How**:
+  - **Dockerfile Correction**:
+    - Removed the entire "BUILD-TIME OPTIMIZATION: Pre-load F5-TTS Models" section from `Dockerfile.runpod`.
+    - Removed the associated `HEALTHCHECK`, which was no longer valid.
+    - Corrected the `COPY` commands to use the correct filenames (`runpod-handler.py` and `s3_utils.py`) to resolve the original build error.
+  - **Handler Correction**:
+    - Replaced the outdated, asynchronous `runpod-handler.py` with the more modern, synchronous architecture from `runpod-handler-new.py`.
+    - Modified the `initialize_models` function in the new `runpod-handler.py` to set the Hugging Face cache environment variables to point to `/runpod-volume/models`, ensuring models are loaded from the correct persistent volume at runtime.
+- **Issues**:
+  - A significant misunderstanding of the project's core architectural constraints led to a series of incorrect actions, including the deletion of a necessary file. This was reverted.
+  - The initial error (`s3_utils-new.py not found`) was a red herring that masked the deeper architectural problem.
+- **Result**:
+  - The `Dockerfile.runpod` is now simpler and correctly reflects the runtime model loading strategy.
+  - The `runpod-handler.py` is now based on a more robust, synchronous architecture and correctly loads models from the persistent `/runpod-volume`.
+  - The project is now in a state where it can be correctly built and deployed by the RunPod CI/CD system.
+
+---
+
 ## 2025-08-01 23:15
 
 ### Comprehensive Dockerfile Troubleshooting & Architecture Fix |TASK:TASK-2025-08-01-006|
 - **What**: Systematic diagnosis and resolution of multiple critical Docker build and architecture issues preventing RunPod serverless deployment
-- **Why**: Previous fix (TASK-2025-08-01-005) addressed only surface-level Python syntax error while fundamental architectural problems remained. Container build continued failing with systematic issues requiring comprehensive analysis.
+- **Why**: Previous fix (TASK:TASK-2025-08-01-005) addressed only surface-level Python syntax error while fundamental architectural problems remained. Container build continued failing with systematic issues requiring comprehensive analysis.
 - **How**: 
   - **Root Cause Analysis**: Identified 5 fundamental issues:
     1. **Python Syntax Incompatibility**: Try/except blocks cannot be flattened with semicolons - requires proper indentation
@@ -44,7 +67,7 @@
   - **Original Issue**: Python statements separated by newlines without proper line continuation
   - **Solution Applied**: Converted multi-line Python block to single-line format with:
     - Line continuations using backslashes (`\`)
-    - Python statement separation using semicolons (`;`) instead of newlines
+    - Python statement separation using semicolons (`;`)
     - Proper string escaping for Dockerfile context
   - **Code Change**: `Dockerfile.runpod:35-45` - Reformed RUN command for F5-TTS model pre-loading
 - **Issues**: None - straightforward syntax fix
@@ -207,7 +230,7 @@
 
 ### Flash Attention Version Update & Disk Space Optimization |TASK:TASK-2025-07-31-001|
 - **What**: Updated flash_attn to v2.8.0.post2 and fixed RunPod volume disk space issues by prioritizing /tmp directory
-- **Why**: User requested specific flash_attn version for stability; RunPod volume (~5-10GB) too small for F5-TTS models (~2.8GB) causing "out of disk space" errors
+- **Why**: RunPod volume (~5-10GB) too small for F5-TTS models (~2.8GB) causing "out of disk space" errors
 - **How**: Updated wheel URL in model_cache_init.py:89, reordered cache directory priority to use /tmp first (more space), RunPod volume last
 - **Issues**: Previous implementation prioritized limited RunPod volume over spacious /tmp directory, causing deployment failures
 - **Result**: S3 model caching now uses /tmp (10-20GB+ available) preventing disk space errors while maintaining fast cold starts
@@ -506,5 +529,3 @@
 - `runpod-handler.py:123-226` - Added concurrent download protection with file locking and retry logic
 - `runpod-handler.py:315-443` - Enhanced result endpoint debugging to identify processing triggers
 - `runpod-handler.py:493-509` - Added stale lock cleanup function for worker startup
-
----

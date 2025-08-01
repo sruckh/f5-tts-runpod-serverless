@@ -27,22 +27,7 @@ RUN echo "⚡ Installing flash_attn during build time for optimal performance...
 RUN python -c "import flash_attn; print('✅ flash_attn installed successfully')" || \
     (echo "❌ flash_attn installation failed" && exit 1)
 
-# =============================================================================
-# BUILD-TIME OPTIMIZATION: Pre-load F5-TTS Models
-# =============================================================================
-
-# Set environment variables for model caching during build
-ENV HF_HOME=/tmp/models
-ENV TRANSFORMERS_CACHE=/tmp/models
-ENV HF_HUB_CACHE=/tmp/models/hub
-ENV TORCH_HOME=/tmp/models/torch
-
-# Create model cache directories
-RUN mkdir -p /tmp/models /tmp/models/hub /tmp/models/torch
-
-# Pre-load F5-TTS models during build time to avoid cold start delays
-RUN echo "📦 Pre-loading F5-TTS models during build..." && \
-    python -c "import os; from f5_tts.api import F5TTS; import torch; print('🔄 Loading F5TTS_v1_Base model...'); device = 'cuda' if torch.cuda.is_available() else 'cpu'; model = F5TTS(model='F5TTS_v1_Base', device=device); print('✅ F5-TTS model pre-loaded successfully'); print('📊 Model cache size:'); total_size = sum(os.path.getsize(os.path.join(dirpath, filename)) for dirpath, dirnames, filenames in os.walk('/tmp/models') for filename in filenames); print(f'   Cache size: {total_size / (1024*1024):.1f} MB')"
+# Models will be loaded from /runpod-volume at runtime, not during build.
 
 # =============================================================================
 # SERVERLESS DEPENDENCIES
@@ -61,8 +46,8 @@ RUN pip install --no-cache-dir \
 # =============================================================================
 
 # Copy optimized serverless handler and utilities
-COPY runpod-handler-new.py /app/runpod-handler.py
-COPY s3_utils-new.py /app/s3_utils.py
+COPY runpod-handler.py /app/runpod-handler.py
+COPY s3_utils.py /app/s3_utils.py
 
 # =============================================================================
 # RUNTIME OPTIMIZATION
@@ -85,9 +70,7 @@ ENV PYTHONDONTWRITEBYTECODE=1
 # CONTAINER STARTUP
 # =============================================================================
 
-# Health check to verify model loading
-HEALTHCHECK --interval=30s --timeout=10s --start-period=60s --retries=3 \
-    CMD python -c "from f5_tts.api import F5TTS; print('✅ Models ready')" || exit 1
+
 
 # Simple startup command - no initialization scripts needed
 # Models are pre-loaded, flash_attn is installed, ready to serve

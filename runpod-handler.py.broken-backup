@@ -1,0 +1,519 @@
+import runpod
+import torch
+import librosa
+import soundfile as sf
+import base64
+import tempfile
+import os
+from typing import List, Optional
+from pydantic import BaseModel
+import uuid
+from s3_utils import upload_to_s3, download_from_s3, s3_client, S3_BUCKET
+
+# Prevent automatic pip installations during model loading
+# This ensures flash_attn and other dependencies don't get installed twice
+os.environ["PIP_NO_BUILD_ISOLATION"] = "1"
+os.environ["PIP_DISABLE_PIP_VERSION_CHECK"] = "1"
+
+# --- Data Models ---
+class WordTiming(BaseModel):
+    word: str
+    start_time: float
+    end_time: float
+
+class TTSResponse(BaseModel):
+    job_id: str
+    status: str
+    audio_url: Optional[str] = None
+    word_timings: Optional[List[WordTiming]] = None
+    duration: Optional[float] = None
+
+# --- Job Management ---
+jobs = {}
+
+# --- Model Loading ---
+model = None
+device = "cuda" if torch.cuda.is_available() else "cpu"
+
+def load_model():
+    """Loads the F5-TTS model with optimized caching."""
+    global model
+    if model is not None:
+        return model
+
+    try:
+        print(f"Loading F5-TTS model on {device}...")
+
+        # Use the official F5-TTS API that comes with the container
+        from f5_tts.api import F5TTS
+
+        # Initialize with default model - the container has models pre-cached
+        model = F5TTS(
+            model="F5TTS_v1_Base",  # Use default F5TTS v1 base model
+            ckpt_file="",           # Use default checkpoint
+            vocab_file="",          # Use default vocab
+            device=device,
+            use_ema=True            # Use Exponential Moving Average for better quality
+        )
+
+        print(f"✅ F5-TTS model loaded successfully on {device}")
+
+        # Upload models to S3 cache for future cold start optimization (async)
+        try:
+            from model_cache_init import upload_models_to_s3_cache
+            import threading
+
+            def upload_models_background():
+                try:
+                    upload_models_to_s3_cache()
+                except Exception as e:
+                    print(f"⚠️ Background model upload to S3 failed: {e}")
+
+            # Upload models in background thread to not block startup
+            upload_thread = threading.Thread(target=upload_models_background, daemon=True)
+            upload_thread.start()
+        except Exception as e:
+            print(f"⚠️ Could not start background model upload: {e}")
+
+        return model
+
+    except Exception as e:
+        print(f"❌ Error loading F5-TTS model: {e}")
+        import traceback
+        traceback.print_exc()
+        model = None
+        return None
+
+# --- Helper Functions ---
+
+def format_srt_time(seconds):
+    """Convert seconds to SRT time format (HH:MM:SS,mmm)"""
+    hours = int(seconds // 3600)
+    minutes = int((seconds % 3600) // 60)
+    secs = int(seconds % 60)
+    milliseconds = int((seconds % 1) * 1000)
+    return f"{hours:02d}:{minutes:02d}:{secs:02d},{milliseconds:03d}"
+
+def format_vtt_time(seconds):
+    """Convert seconds to WebVTT time format (HH:MM:SS.mmm)"""
+    hours = int(seconds // 3600)
+    minutes = int((seconds % 3600) // 60)
+    secs = int(seconds % 60)
+    milliseconds = int((seconds % 1) * 1000)
+    return f"{hours:02d}:{minutes:02d}:{secs:02d}.{milliseconds:03d}"
+
+def generate_srt_from_timings(timing_entries):
+    """Generate SRT format from timing entries"""
+    srt_lines = []
+    for i, entry in enumerate(timing_entries):
+        start_srt = format_srt_time(entry["start_time"])
+        end_srt = format_srt_time(entry["end_time"])
+        srt_lines.append(f"{i+1}")
+        srt_lines.append(f"{start_srt} --> {end_srt}")
+        srt_lines.append(entry["word"])
+        srt_lines.append("")  # Empty line separator
+    return "\n".join(srt_lines)
+
+def generate_vtt_from_timings(timing_entries):
+    """Generate WebVTT format from timing entries"""
+    vtt_lines = ["WEBVTT", ""]
+    for entry in timing_entries:
+        start_vtt = format_vtt_time(entry["start_time"])
+        end_vtt = format_vtt_time(entry["end_time"])
+        vtt_lines.extend([f"{start_vtt} --> {end_vtt}", entry["word"], ""])
+    return "\n".join(vtt_lines)
+
+def generate_compact_from_timings(timing_entries):
+    """Generate compact CSV format from timing entries"""
+    compact_lines = ["word,start_time,end_time"]  # CSV header
+    for entry in timing_entries:
+        compact_lines.append(f"{entry['word']},{entry['start_time']:.3f},{entry['end_time']:.3f}")
+    return "\n".join(compact_lines)
+
+def process_tts_job(job_id, text, speed, return_word_timings, local_voice, timing_format):
+    """Processes a TTS job in the background."""
+    temp_files = []
+    try:
+        jobs[job_id]["status"] = "PROCESSING"
+        print(f"🎙️ Starting TTS job {job_id}...")
+
+        current_model = load_model()
+        if not current_model:
+            raise Exception("TTS model not loaded")
+
+        # --- Reference Audio Handling ---
+        if not local_voice:
+            raise Exception("`local_voice` is required for TTS generation.")
+
+        voice_path = f"/tmp/{local_voice}"
+        if not os.path.exists(voice_path):
+            print(f"⬇️ Voice not found locally, downloading from S3: {local_voice}")
+            if not download_from_s3(f"voices/{local_voice}", voice_path):
+                raise Exception(f"Failed to download voice file: {local_voice}")
+
+        # --- Audio Preprocessing ---
+        audio_data_ref, sr_ref = librosa.load(voice_path, sr=None)
+        duration = librosa.get_duration(y=audio_data_ref, sr=sr_ref)
+
+        if duration > 10.0:
+            print(f"✂️ Clipping long reference audio ({duration:.2f}s > 10s)")
+            start_sample = int((len(audio_data_ref) - 8 * sr_ref) / 2)
+            end_sample = start_sample + int(8 * sr_ref)
+            clipped_audio = audio_data_ref[start_sample:end_sample]
+
+            with tempfile.NamedTemporaryFile(delete=False, suffix=".wav") as temp_clipped_file:
+                sf.write(temp_clipped_file.name, clipped_audio, sr_ref)
+                voice_path = temp_clipped_file.name
+                temp_files.append(voice_path)
+
+        # --- Reference Text Handling ---
+        ref_text = None
+        text_filename = local_voice.replace('.wav', '.txt')
+        text_path = f"/tmp/{text_filename}"
+        if os.path.exists(text_path):
+            with open(text_path, 'r', encoding='utf-8') as f:
+                ref_text = f.read().strip()
+        else:
+            if download_from_s3(f"voices/{text_filename}", text_path):
+                with open(text_path, 'r', encoding='utf-8') as f:
+                    ref_text = f.read().strip()
+
+        # --- TTS Inference ---
+        print(f"🧠 Performing TTS inference...")
+        infer_params = {
+            "ref_audio": voice_path,
+            "gen_text": text,
+            "speed": speed,
+            "remove_silence": True,
+            "ref_text": ref_text
+        }
+
+        result = current_model.generate(infer_params)
+        wav = result["wav"]
+        timing_entries = result["word_timings"]
+        total_duration = result["duration"]
+
+        with tempfile.NamedTemporaryFile(delete=False, suffix=".wav") as temp_audio:
+            sf.write(temp_audio.name, wav, current_model.hps.data.sampling_rate)
+            temp_files.append(temp_audio.name)
+
+        # --- Timing Data Processing ---
+        word_timings = []
+        timing_data = ""
+        if return_word_timings:
+            if timing_format == "srt":
+                timing_data = generate_srt_from_timings(timing_entries)
+            elif timing_format == "vtt":
+                timing_data = generate_vtt_from_timings(timing_entries)
+            elif timing_format == "compact":
+                timing_data = generate_compact_from_timings(timing_entries)
+            else:
+                for entry in timing_entries:
+                    word_timings.append(WordTiming(
+                        word=entry["word"],
+                        start_time=entry["start_time"],
+                        end_time=entry["end_time"]
+                    ))
+                timing_data = word_timings
+
+        # --- S3 Upload ---
+        print(f"☁️ Uploading result to S3...")
+        s3_upload_success = upload_to_s3(temp_audio.name, f"output/{job_id}.wav")
+        if not s3_upload_success:
+            raise Exception("Failed to upload audio to S3")
+
+        audio_url = f"/download?file_path=output/{job_id}.wav"
+        print(f"✅ Audio uploaded to S3, serverless download URL: {audio_url}")
+
+        # --- Finalize Job ---
+        jobs[job_id]["status"] = "COMPLETED"
+        result_payload = {
+            "audio_url": audio_url,
+            "duration": total_duration
+        }
+
+        if return_word_timings:
+            timing_urls = {}
+            if timing_format in ["srt", "vtt", "compact"]:
+                file_extension = timing_format if timing_format != "compact" else "csv"
+                timing_filename = f"timings/{job_id}.{file_extension}"
+                with tempfile.NamedTemporaryFile(mode='w', encoding='utf-8', delete=False, suffix=f".{file_extension}") as timing_file:
+                    timing_file.write(timing_data)
+                    timing_file.flush()
+                    if upload_to_s3(timing_file.name, timing_filename):
+                        timing_urls[timing_format] = f"/download?file_path={timing_filename}"
+                    os.unlink(timing_file.name)
+                    temp_files.append(timing_file.name)
+            else: # JSON
+                srt_data = generate_srt_from_timings(timing_entries)
+                srt_filename = f"timings/{job_id}.srt"
+                with tempfile.NamedTemporaryFile(mode='w', encoding='utf-8', delete=False, suffix=".srt") as srt_file:
+                    srt_file.write(srt_data)
+                    srt_file.flush()
+                    if upload_to_s3(srt_file.name, srt_filename):
+                        timing_urls["srt"] = f"/download?file_path={srt_filename}"
+                    os.unlink(srt_file.name)
+
+                compact_data = generate_compact_from_timings(timing_entries)
+                csv_filename = f"timings/{job_id}.csv"
+                with tempfile.NamedTemporaryFile(mode='w', encoding='utf-8', delete=False, suffix=".csv") as csv_file:
+                    csv_file.write(compact_data)
+                    csv_file.flush()
+                    if upload_to_s3(csv_file.name, csv_filename):
+                        timing_urls["compact"] = f"/download?file_path={csv_filename}"
+                    os.unlink(csv_file.name)
+
+                                result_payload["word_timings"] = [
+                    wt.model_dump() for wt in word_timings
+                ]
+
+            if timing_urls:
+                result_payload["timing_files"] = timing_urls
+                result_payload["timing_format"] = timing_format
+
+        jobs[job_id]["result"] = result_payload
+        print(f"✅ Job {job_id} completed successfully")
+
+    except Exception as e:
+        error_msg = str(e)
+        print(f"❌ Job {job_id} failed: {error_msg}")
+        jobs[job_id]["status"] = "ERROR"
+        jobs[job_id]["error"] = error_msg
+        import traceback
+        traceback.print_exc()
+
+    finally:
+        for temp_file in temp_files:
+            try:
+                if os.path.exists(temp_file):
+                    os.unlink(temp_file)
+            except Exception as cleanup_error:
+                print(f"⚠️ Failed to cleanup {temp_file}: {cleanup_error}")
+
+# --- RunPod Handler ---
+def handler(job):
+    """
+    Optimized RunPod serverless handler for F5-TTS.
+    """
+    try:
+        current_model = load_model()
+        if not current_model:
+            return {"error": "TTS model failed to load"}
+
+        job_input = job.get('input', {})
+        endpoint = job_input.get("endpoint")
+
+        print(f"🎯 Handling request - endpoint: {endpoint}")
+
+        if endpoint == "upload":
+            voice_file_url = job_input.get("voice_file_url")
+            voice_file = job_input.get("voice_file")
+            voice_name = job_input.get("voice_name")
+            text_file_url = job_input.get("text_file_url")
+            text_file = job_input.get("text_file")
+
+            if not voice_name:
+                return {"error": "voice_name is required for upload."}
+
+            if voice_file_url:
+                try:
+                    with tempfile.NamedTemporaryFile(delete=False, suffix=".wav") as temp_file:
+                        import requests
+                        r = requests.get(voice_file_url, timeout=60)
+                        r.raise_for_status()
+                        temp_file.write(r.content)
+                        temp_file.flush()
+                        upload_to_s3(temp_file.name, f"voices/{voice_name}")
+                        os.unlink(temp_file.name)
+                except Exception as e:
+                    return {"error": f"Failed to download/upload voice file: {str(e)}"}
+            elif voice_file:
+                try:
+                    with tempfile.NamedTemporaryFile(delete=False, suffix=".wav") as temp_file:
+                        temp_file.write(base64.b64decode(voice_file))
+                        temp_file.flush()
+                        upload_to_s3(temp_file.name, f"voices/{voice_name}")
+                        os.unlink(temp_file.name)
+                except Exception as e:
+                    return {"error": f"Failed to process voice file: {str(e)}"}
+            else:
+                return {"error": "Either voice_file or voice_file_url is required for upload."}
+
+            text_filename = voice_name.replace('.wav', '.txt')
+            if text_file_url:
+                try:
+                    with tempfile.NamedTemporaryFile(delete=False, suffix=".txt") as temp_file:
+                        import requests
+                        r = requests.get(text_file_url, timeout=30)
+                        r.raise_for_status()
+                        temp_file.write(r.content)
+                        temp_file.flush()
+                        upload_to_s3(temp_file.name, f"voices/{text_filename}")
+                        os.unlink(temp_file.name)
+                except Exception as e:
+                    return {"error": f"Failed to download/upload text file: {str(e)}"}
+            elif text_file:
+                try:
+                    with tempfile.NamedTemporaryFile(delete=False, suffix=".txt") as temp_file:
+                        temp_file.write(base64.b64decode(text_file))
+                        temp_file.flush()
+                        upload_to_s3(temp_file.name, f"voices/{text_filename}")
+                        os.unlink(temp_file.name)
+                except Exception as e:
+                    return {"error": f"Failed to process text file: {str(e)}"}
+            else:
+                return {"error": "Reference text file is required. Provide text_file_url or text_file."}
+
+            return {"status": f"Voice '{voice_name}' and reference text uploaded successfully."}
+
+        elif endpoint == "status":
+            job_id = job_input.get("job_id")
+            if not job_id or job_id not in jobs:
+                return {"error": "Invalid job_id."}
+            return {"job_id": job_id, "status": jobs[job_id].get("status"), "error": jobs[job_id].get("error")}
+
+        elif endpoint == "result":
+            job_id = job_input.get("job_id")
+            if not job_id or job_id not in jobs:
+                return {"error": "Invalid job_id."}
+
+            if jobs[job_id]["status"] != "COMPLETED":
+                return {"error": f"Job is not complete. Status: {jobs[job_id]['status']}"}
+
+            return jobs[job_id]["result"]
+
+        elif endpoint == "download":
+            file_path = job_input.get("file_path")
+            if not file_path:
+                return {"error": "file_path is required for download"}
+
+            try:
+                file_path = os.path.normpath(file_path).replace("\\", "/")
+                if file_path.startswith("/") or ".." in file_path:
+                    return {"error": "Invalid file path"}
+
+                with tempfile.NamedTemporaryFile(delete=False) as temp_file:
+                    if download_from_s3(file_path, temp_file.name):
+                        with open(temp_file.name, 'rb') as f:
+                            file_content = f.read()
+                        os.unlink(temp_file.name)
+
+                        file_b64 = base64.b64encode(file_content).decode('utf-8')
+
+                        if file_path.endswith('.wav'):
+                            mime_type = "audio/wav"
+                        elif file_path.endswith('.srt'):
+                            mime_type = "text/plain"
+                        elif file_path.endswith('.vtt'):
+                            mime_type = "text/vtt"
+                        elif file_path.endswith('.csv'):
+                            mime_type = "text/csv"
+                        else:
+                            mime_type = "application/octet-stream"
+
+                        return {
+                            "success": True,
+                            "file_content": file_b64,
+                            "mime_type": mime_type,
+                            "file_size": len(file_content),
+                            "file_name": os.path.basename(file_path)
+                        }
+                    else:
+                        return {"error": f"File not found in S3: {file_path}"}
+            except Exception as e:
+                return {"error": f"Download failed: {str(e)}"}
+
+        elif endpoint == "list_voices":
+            try:
+                voices = []
+                if s3_client and S3_BUCKET:
+                    response = s3_client.list_objects_v2(Bucket=S3_BUCKET, Prefix="voices/")
+
+                    if 'Contents' in response:
+                        voice_files = {}
+                        for obj in response['Contents']:
+                            key = obj['Key']
+                            filename = key.replace('voices/', '')
+
+                            if filename.endswith('.wav'):
+                                voice_name = filename
+                                voice_files[voice_name] = {
+                                    'voice_file': voice_name,
+                                    'text_file': None,
+                                    'size': obj['Size'],
+                                    'last_modified': obj['LastModified'].isoformat()
+                                }
+                            elif filename.endswith('.txt'):
+                                voice_name = filename.replace('.txt', '.wav')
+                                if voice_name in voice_files:
+                                    voice_files[voice_name]['text_file'] = filename
+
+                        voices = list(voice_files.values())
+
+                return {
+                    "voices": voices,
+                    "count": len(voices),
+                    "status": "success"
+                }
+            except Exception as e:
+                return {"error": f"Failed to list voices: {str(e)}"}
+
+        else:  # Default to TTS generation
+            text = job_input.get('text')
+            speed = job_input.get('speed', 1.0)
+            return_word_timings = job_input.get('return_word_timings', True)
+            timing_format = job_input.get('timing_format', 'json')
+            local_voice = job_input.get('local_voice')
+
+            if not text:
+                return {"error": "Text input is required."}
+
+            job_id = str(uuid.uuid4())
+            jobs[job_id] = {"status": "QUEUED"}
+
+            import threading
+            thread = threading.Thread(
+                target=process_tts_job, 
+                args=(
+                    job_id, text, speed, return_word_timings, 
+                    local_voice, timing_format
+                )
+            )
+            thread.start()
+
+            return {"job_id": job_id, "status": "QUEUED"}
+
+    except Exception as e:
+        error_msg = f"Handler error: {str(e)}"
+        print(f"❌ {error_msg}")
+        import traceback
+        traceback.print_exc()
+        return {"error": error_msg}
+
+def cleanup_stale_locks():
+    """Remove any stale lock files from previous sessions."""
+    import glob
+    try:
+        lock_files = glob.glob("/tmp/*.lock")
+        if lock_files:
+            print(f"🧹 Cleaning up {len(lock_files)} stale lock files...")
+            for lock_file in lock_files:
+                try:
+                    os.unlink(lock_file)
+                except Exception as e:
+                    print(f"⚠️ Could not remove {lock_file}: {e}")
+        else:
+            print("✅ No stale lock files found")
+    except Exception as e:
+        print(f"⚠️ Lock cleanup error: {e}")
+
+if __name__ == "__main__":
+    print("🚀 Starting F5-TTS RunPod serverless worker...")
+
+    cleanup_stale_locks()
+
+    print("🔄 Pre-loading F5-TTS model...")
+    load_model()
+
+    print("✅ F5-TTS RunPod serverless worker ready!")
+    runpod.serverless.start({"handler": handler})
