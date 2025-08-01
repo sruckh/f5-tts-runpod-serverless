@@ -1,5 +1,16 @@
 # Engineering Journal
 
+## 2025-08-02 15:15
+
+### API Endpoint Logic Fix |TASK:TASK-2025-08-02-003|
+- **What**: Fixed a critical bug in the `runpod-handler.py` where the new `/download` endpoint was causing issues with the voice reference download logic.
+- **Why**: The `if endpoint == "download":` block was not properly chained with the other endpoint logic, causing the code to fall through and execute the TTS generation logic unintentionally.
+- **How**: Changed the `if endpoint == "upload":` statement to `elif endpoint == "upload":` in `runpod-handler.py`. This ensures that the endpoint logic is correctly chained and only one endpoint is executed per request.
+- **Issues**: None.
+- **Result**: The API now correctly handles requests to the `/download`, `/upload`, and other endpoints without conflicts.
+
+---
+
 ## 2025-08-02 14:45
 
 ### API Enhancement and Dependency Update |TASK:TASK-2025-08-02-002|

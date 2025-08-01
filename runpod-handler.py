@@ -268,7 +268,7 @@ def handler(job):
         # =================================================================
         # VOICE UPLOAD ENDPOINT
         # =================================================================
-        if endpoint == "upload":
+        elif endpoint == "upload":
             voice_file_url = job_input.get("voice_file_url")
             voice_name = job_input.get("voice_name")
             
