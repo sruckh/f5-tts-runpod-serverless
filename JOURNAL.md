@@ -1,5 +1,16 @@
 # Engineering Journal
 
+## 2025-08-01 12:00
+
+### F5-TTS Reference Text Elimination & Model Loading Optimization |TASK:TASK-2025-08-01-001|
+- **What**: Complete removal of reference text file usage and migration to F5-TTS CLI inference patterns with automatic transcription, plus model loading optimization
+- **Why**: User identified root cause of tensor dimension mismatch: F5-TTS trims audio to <12s but reference text was from full-length audio creating size disparity (2106 vs 4089 tensor dimensions)
+- **How**: 1) Eliminated all reference text file downloads/usage from API, 2) Implemented F5-TTS CLI patterns using preprocess_ref_audio_text() with empty string for auto-transcription, 3) Replaced model loading with dynamic get_f5_tts_model() and get_vocoder() during inference only, 4) Updated upload endpoint to only require audio files, 5) Enhanced S3 function debugging for container diagnosis
+- **Issues**: Previous implementation suffered from audio/text length mismatch when F5-TTS processed shorter audio clips but text remained full-length, causing "Expected size 2106 but got size 4089" tensor errors
+- **Result**: Clean F5-TTS implementation using official CLI inference patterns, automatic transcription ensures text matches processed audio length, models load only during inference for better resource management, simplified API requiring only voice audio files, comprehensive debugging for container rebuild validation
+
+---
+
 ## 2025-07-31 23:00
 
 ### F5-TTS Critical Infrastructure Fixes - Complete System Overhaul |TASK:TASK-2025-07-31-007|

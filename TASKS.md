@@ -7,29 +7,29 @@
 **Progress**: 2/2 tasks completed
 
 ## Current Task
-**Task ID**: TASK-2025-07-31-007
-**Title**: F5-TTS Critical Infrastructure Fixes - Complete System Overhaul
+**Task ID**: TASK-2025-08-01-001
+**Title**: F5-TTS Reference Text Elimination & Model Loading Optimization
 **Status**: COMPLETE
-**Started**: 2025-07-31 23:00
-**Dependencies**: TASK-2025-07-31-006
+**Started**: 2025-08-01 12:00
+**Dependencies**: TASK-2025-07-31-007
 
 ### Task Context
-- **Previous Work**: Multiple critical issues in F5-TTS system identified by user: model loading timing, S3 upload missing, audio quality problems, API mismatch
-- **Key Files**: `runpod-handler.py:37-60` - model loading, `runpod-handler.py:140-185` - inference API, `runpod-handler.py:428-466` - startup sequence
-- **Environment**: Official F5-TTS container `ghcr.io/swivid/f5-tts:main` with correct API structure
-- **Next Steps**: Container rebuild and deployment testing with all fixes
+- **Previous Work**: Container debugging revealed tensor dimension mismatch issue and missing S3 functions requiring complete inference API overhaul
+- **Key Files**: `runpod-handler.py:33-124` - new model loading functions, `runpod-handler.py:127-248` - inference API rewrite, `runpod-handler.py:316-362` - upload endpoint updates
+- **Environment**: F5-TTS CLI inference patterns with automatic transcription capability
+- **Next Steps**: Container rebuild with latest code and validation testing
 
 ### Findings & Decisions
-- **FINDING-001**: Model was loading on ALL requests including status checks - major inefficiency
-- **FINDING-002**: Using completely wrong F5-TTS API - `F5TTS(model="F5TTS_v1_Base")` doesn't exist
-- **FINDING-003**: Official API is `F5TTS()` with no parameters, uses `infer(ref_file, ref_text, gen_text)`
-- **FINDING-004**: S3 model upload never integrated with TTS workflow - models never persisted
-- **FINDING-005**: Result endpoint had broken error handling causing failures even on success
-- **DECISION-001**: Fix model loading to only happen during TTS generation, not status checks
-- **DECISION-002**: Replace entire inference logic with correct official F5-TTS API calls
-- **DECISION-003**: Integrate S3 model sync (download) and upload (persistence) into startup sequence
-- **DECISION-004**: Fix result endpoint error handling to properly return successful results
-- **DECISION-005**: Use official API parameters exactly: ref_file, ref_text (empty for ASR), gen_text
+- **FINDING-001**: Tensor dimension mismatch caused by reference text from full audio vs trimmed audio length disparity
+- **FINDING-002**: F5-TTS trims reference audio to <12 seconds but transcribed text was from original full-length audio
+- **FINDING-003**: Container missing S3 model caching functions due to old code version - rebuild required
+- **FINDING-004**: Model loading happening at startup inefficient - should be during inference only
+- **FINDING-005**: User insight: eliminating reference text and using audio <12s should fix tensor mismatch
+- **DECISION-001**: Remove all reference text file usage - F5-TTS will auto-transcribe processed audio
+- **DECISION-002**: Use F5-TTS CLI inference patterns with preprocess_ref_audio_text() and infer_process()
+- **DECISION-003**: Load models dynamically during inference using get_f5_tts_model() and get_vocoder()
+- **DECISION-004**: Update upload endpoint to not require reference text files - audio only
+- **DECISION-005**: Enhanced debugging for container function availability diagnosis
 
 ### Task Chain
 1. ✅ Fix distutils error in Dockerfile (TASK-2025-07-29-003)
@@ -47,4 +47,5 @@
 13. ✅ Python Syntax Error Fixes in runpod-handler.py (TASK-2025-07-31-004)
 14. ✅ Critical Audio Quality Fix - F5-TTS API Parameter Recovery (TASK-2025-07-31-005)
 15. ✅ F5-TTS API Version Compatibility Fix (TASK-2025-07-31-006)
-16. ✅ F5-TTS Critical Infrastructure Fixes - Complete System Overhaul (TASK-2025-07-31-007) (CURRENT)
+16. ✅ F5-TTS Critical Infrastructure Fixes - Complete System Overhaul (TASK-2025-07-31-007)
+17. ✅ F5-TTS Reference Text Elimination & Model Loading Optimization (TASK-2025-08-01-001) (CURRENT)
