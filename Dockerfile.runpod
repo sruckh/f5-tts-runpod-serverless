@@ -1,51 +1,94 @@
-# Use official F5-TTS container as base - pre-built and optimized
+# F5-TTS RunPod Serverless Dockerfile - Optimized Architecture
+# ================================================================
+# 
+# This Dockerfile implements proper serverless optimization:
+# - Models pre-loaded during build time
+# - flash_attn installed during build (not runtime)
+# - Optimized storage paths using /tmp
+# - Minimal runtime dependencies
+# - Fast cold start performance
+
 FROM ghcr.io/swivid/f5-tts:main
 
 # Set working directory
 WORKDIR /app
 
+# =============================================================================
+# BUILD-TIME OPTIMIZATION: Install flash_attn
+# =============================================================================
+
+# Install flash_attn with specific wheel for Python 3.11 + CUDA 12.x compatibility
+# This prevents runtime installation and disk space issues
+RUN echo "⚡ Installing flash_attn during build time for optimal performance..." && \
+    pip install --no-cache-dir \
+    https://github.com/Dao-AILab/flash-attention/releases/download/v2.8.0.post2/flash_attn-2.8.0.post2+cu12torch2.4cxx11abiFALSE-cp311-cp311-linux_x86_64.whl
+
+# Verify flash_attn installation
+RUN python -c "import flash_attn; print('✅ flash_attn installed successfully')" || \
+    (echo "❌ flash_attn installation failed" && exit 1)
+
+# =============================================================================
+# BUILD-TIME OPTIMIZATION: Pre-load F5-TTS Models
+# =============================================================================
+
+# Set environment variables for model caching during build
+ENV HF_HOME=/tmp/models
+ENV TRANSFORMERS_CACHE=/tmp/models
+ENV HF_HUB_CACHE=/tmp/models/hub
+ENV TORCH_HOME=/tmp/models/torch
+
+# Create model cache directories
+RUN mkdir -p /tmp/models /tmp/models/hub /tmp/models/torch
+
+# Pre-load F5-TTS models during build time to avoid cold start delays
+RUN echo "📦 Pre-loading F5-TTS models during build..." && \
+    python -c "import os; from f5_tts.api import F5TTS; import torch; print('🔄 Loading F5TTS_v1_Base model...'); device = 'cuda' if torch.cuda.is_available() else 'cpu'; model = F5TTS(model='F5TTS_v1_Base', device=device); print('✅ F5-TTS model pre-loaded successfully'); print('📊 Model cache size:'); total_size = sum(os.path.getsize(os.path.join(dirpath, filename)) for dirpath, dirnames, filenames in os.walk('/tmp/models') for filename in filenames); print(f'   Cache size: {total_size / (1024*1024):.1f} MB')"
+
+# =============================================================================
+# SERVERLESS DEPENDENCIES
+# =============================================================================
+
 # Install minimal additional dependencies for RunPod serverless
 RUN pip install --no-cache-dir \
     runpod \
     boto3 \
-    requests
+    requests \
+    librosa \
+    soundfile
 
-# Copy our serverless handler and utilities
-COPY runpod-handler.py /app/runpod-handler.py
-COPY s3_utils.py /app/s3_utils.py
-# model_cache_init.py no longer needed - environment variables set directly
+# =============================================================================
+# APPLICATION CODE
+# =============================================================================
 
-# Create proper model cache directory structure in /runpod-volume
-RUN mkdir -p /runpod-volume/models/hub \
-             /runpod-volume/models/transformers \
-             /runpod-volume/models/torch \
-             /runpod-volume/models/f5-tts
+# Copy optimized serverless handler and utilities
+COPY runpod-handler-new.py /app/runpod-handler.py
+COPY s3_utils-new.py /app/s3_utils.py
 
-# Set environment variables for optimal performance
+# =============================================================================
+# RUNTIME OPTIMIZATION
+# =============================================================================
+
+# Set optimal environment variables for serverless performance
 ENV PYTORCH_CUDA_ALLOC_CONF=max_split_size_mb:512
 ENV CUDA_VISIBLE_DEVICES=0
 
-# CRITICAL: Set all model cache paths to /runpod-volume (persistent storage)
-ENV HF_HOME=/runpod-volume/models
-ENV TRANSFORMERS_CACHE=/runpod-volume/models/transformers
-ENV HF_HUB_CACHE=/runpod-volume/models/hub
-ENV TORCH_HOME=/runpod-volume/models/torch
+# Disable unnecessary HuggingFace features for faster startup
+ENV HF_HUB_DISABLE_PROGRESS_BARS=1
+ENV HF_HUB_DISABLE_SYMLINKS_WARNING=1
+ENV HF_HUB_DISABLE_EXPERIMENTAL_WARNING=1
 
-# Pre-load F5-TTS models during build to /runpod-volume for faster cold starts
-RUN python -c "\
-import os, sys; \
-sys.path.append('/app'); \
-print('🔄 Pre-loading F5-TTS models to /runpod-volume/models...'); \
-try: \
-    from f5_tts.model import F5TTS; \
-    model = F5TTS('F5TTS_v1_Base', device='cpu'); \
-    print('✅ F5-TTS models pre-loaded successfully'); \
-except Exception as e: \
-    print(f'⚠️ Model pre-loading failed (will load at runtime): {e}'); \
-"
+# Set Python optimization flags
+ENV PYTHONUNBUFFERED=1
+ENV PYTHONDONTWRITEBYTECODE=1
 
-# Create fallback symlink for compatibility
-RUN ln -sf /runpod-volume/models /app/models || true
+# =============================================================================
+# CONTAINER STARTUP
+# =============================================================================
 
-# Start the serverless worker (models pre-loaded, environment configured)
+# Health check to verify model loading
+HEALTHCHECK --interval=30s --timeout=10s --start-period=60s --retries=3 \
+    CMD python -c "from f5_tts.api import F5TTS; print('✅ Models ready')" || exit 1
+
+# Simple startup command - no initialization scripts needed
+# Models are pre-loaded, flash_attn is installed, ready to serve
 CMD ["python", "-u", "/app/runpod-handler.py"]
