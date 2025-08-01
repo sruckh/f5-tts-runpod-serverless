@@ -1,5 +1,21 @@
 # Engineering Journal
 
+## 2025-08-02 14:45
+
+### API Enhancement and Dependency Update |TASK:TASK-2025-08-02-002|
+- **What**: Added a `/download` endpoint to retrieve generated audio files and updated the `transformers` library to version `>=4.48.1`.
+- **Why**: The S3 URLs for generated audio are not publicly accessible, requiring a dedicated endpoint to download them. The `transformers` library needed to be updated to a more recent version.
+- **How**:
+  - **`Dockerfile.runpod`**: Added `RUN pip install --upgrade "transformers>=4.48.1"` to the Dockerfile.
+  - **`s3_utils.py`**: Created a new function `download_file_from_s3_to_memory` to download S3 objects as a byte stream.
+  - **`runpod-handler.py`**:
+    - Implemented a new `/download` endpoint that takes a `job_id` and returns the corresponding audio file as a base64 encoded string.
+    - The TTS generation endpoint now returns a `job_id`.
+- **Issues**: None.
+- **Result**: The API now has a `/download` endpoint to securely retrieve audio files, and the `transformers` dependency is up to date.
+
+---
+
 ## 2025-08-02 00:30
 
 ### Critical Storage Architecture Correction |TASK:TASK-2025-08-02-001|
@@ -42,8 +58,10 @@
     - **flash_attn Installation**: Build-time installation prevents runtime issues
     - **Optimized Dependencies**: All serverless dependencies pre-installed
   - **File Operations**: 
-    - `Dockerfile.runpod` ← `Dockerfile.runpod-new` (replaced)
-    - `Dockerfile.runpod.broken` ← backup of problematic version
+    - `Dockerfile.runpod` 
+ `Dockerfile.runpod-new` (replaced)
+    - `Dockerfile.runpod.broken` 
+ backup of problematic version
     - Leverages existing `runpod-handler-new.py` and `s3_utils-new.py`
 - **Issues**: 
   - **Critical Learning**: Violated user constraint by building locally despite explicit instructions never to build on this host
@@ -104,8 +122,10 @@
   - Container build process didn't optimize for RunPod serverless constraints (Network Volume requirement)
   - Cache directory fallback logic was backwards - prioritizing limited container storage over abundant persistent storage
 - **Result**:
-  - **Performance**: Cold start time 30-60s → 2-3s (90% faster) with pre-loaded models in persistent storage
-  - **Reliability**: Success rate ~20% → 99%+ by eliminating disk space failures  
+  - **Performance**: Cold start time 30-60s 
+ 2-3s (90% faster) with pre-loaded models in persistent storage
+  - **Reliability**: Success rate ~20% 
+ 99%+ by eliminating disk space failures  
   - **Architecture**: Clean 3-tier storage separation - `/runpod-volume/models` (AI models), `/tmp` (processing files), S3 (user data)
   - **Deployment**: Complete RunPod configuration requirements documented - 50GB Network Volume, environment variables, resource specs
   - **Maintainability**: 60% reduction in storage-related code complexity by removing S3 model sync system
@@ -187,7 +207,8 @@
 ### F5-TTS Audio Quality & API Architecture Improvements |TASK:TASK-2025-07-31-003|
 - **What**: Fixed garbled audio output, replaced direct S3 URLs with secure downloads, and converted timing data to downloadable files
 - **Why**: User reported three critical issues: garbled audio (unusable), direct S3 URLs requiring authentication, and large timing data exceeding API limits
-- **How**: Fixed F5-TTS API parameters (ref_file→ref_audio), added audio preprocessing for optimal duration, implemented /download endpoint, created multiple timing file formats (SRT, CSV, VTT)
+- **How**: Fixed F5-TTS API parameters (ref_file
+ref_audio), added audio preprocessing for optimal duration, implemented /download endpoint, created multiple timing file formats (SRT, CSV, VTT)
 - **Issues**: F5-TTS API parameter mismatch, reference audio clipping at 12+ seconds, security concerns with direct bucket access, JSON payload size limits
 - **Result**: High-quality voice cloning with proper audio preprocessing, secure serverless downloads, FFMPEG-ready subtitle files reducing API payload by 80-90%
 
@@ -198,7 +219,8 @@
 ### Critical Audio Quality Recovery - F5-TTS API Parameter Fix |TASK:TASK-2025-07-31-005|
 - **What**: Applied essential audio quality fixes from commit 55aa151 to restore clear audio generation without complex timing features
 - **Why**: Container exit issues forced rollback to stable version (commit 540bc9d) which was missing critical fixes for garbled audio output
-- **How**: Selectively applied three key changes: 1) F5-TTS API parameter fix (ref_file→ref_audio), 2) Added librosa audio preprocessing with 8-second clipping, 3) Implemented fallback inference logic for API compatibility
+- **How**: Selectively applied three key changes: 1) F5-TTS API parameter fix (ref_file
+ref_audio), 2) Added librosa audio preprocessing with 8-second clipping, 3) Implemented fallback inference logic for API compatibility
 
 ---
 

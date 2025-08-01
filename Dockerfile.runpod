@@ -39,7 +39,8 @@ RUN pip install --no-cache-dir \
     boto3 \
     requests \
     librosa \
-    soundfile
+    soundfile \
+    "transformers>=4.48.1"
 
 # =============================================================================
 # APPLICATION CODE

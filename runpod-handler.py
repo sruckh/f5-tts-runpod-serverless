@@ -22,7 +22,8 @@ import os
 import uuid
 import requests
 from typing import Optional
-from s3_utils import upload_to_s3
+from s3_utils import upload_to_s3, download_file_from_s3_to_memory
+import base64
 
 # =============================================================================
 # GLOBAL MODEL LOADING - Happens ONCE during container initialization
@@ -243,6 +244,28 @@ def handler(job):
         print(f"🎯 Processing request - endpoint: {endpoint}")
         
         # =================================================================
+        # DOWNLOAD ENDPOINT
+        # =================================================================
+        if endpoint == "download":
+            job_id = job_input.get("job_id")
+            if not job_id:
+                return {"error": "job_id is required for download"}
+
+            output_key = f"output/{job_id}.wav"
+            
+            try:
+                audio_data = download_file_from_s3_to_memory(output_key)
+                if audio_data:
+                    return {
+                        "audio_data": base64.b64encode(audio_data).decode('utf-8'),
+                        "content_type": "audio/wav"
+                    }
+                else:
+                    return {"error": f"Audio file not found for job_id: {job_id}"}
+            except Exception as e:
+                return {"error": f"Failed to download audio file: {str(e)}"}
+
+        # =================================================================
         # VOICE UPLOAD ENDPOINT
         # =================================================================
         if endpoint == "upload":
@@ -349,7 +372,8 @@ def handler(job):
             
             # Upload result to S3
             try:
-                output_key = f"output/{uuid.uuid4()}.wav"
+                job_id = str(uuid.uuid4())
+                output_key = f"output/{job_id}.wav"
                 audio_url = upload_to_s3(output_file, output_key)
                 
                 if not audio_url:
@@ -364,7 +388,8 @@ def handler(job):
                     "audio_url": audio_url,
                     "duration": duration,
                     "text": text,
-                    "status": "completed"
+                    "status": "completed",
+                    "job_id": job_id
                 }
                 
             except Exception as e:

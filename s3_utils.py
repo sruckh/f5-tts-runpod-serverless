@@ -137,3 +137,18 @@ def check_s3_object_exists(object_name):
     except Exception as e:
         print(f"❌ Error checking S3 object: {e}")
         return False
+
+def download_file_from_s3_to_memory(object_name):
+    """Download a file from S3 and return it as a byte stream."""
+    if not s3_client or not S3_BUCKET:
+        print("S3 not configured properly")
+        return None
+    try:
+        s3_object = s3_client.get_object(Bucket=S3_BUCKET, Key=object_name)
+        return s3_object['Body'].read()
+    except ClientError as e:
+        if e.response['Error']['Code'] == "404":
+            print(f"The object {object_name} does not exist.")
+        else:
+            print(f"An error occurred: {e}")
+        return None
