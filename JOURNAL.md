@@ -1,5 +1,40 @@
 # Engineering Journal
 
+## 2025-08-02 23:50
+
+### Python-ASS Library Dependency Addition |TASK:TASK-2025-08-02-010|
+- **What**: Added python-ass library to Dockerfile.runpod dependencies to enable optimized ASS subtitle generation functionality that was previously falling back to manual generation
+- **Why**: User identified that the python-ass module was missing from requirements despite being integrated into the code. The enhance_ass_format() function (runpod-handler.py:677) imports and uses python-ass library for superior social media-optimized subtitle styling, but was falling back to manual generation due to missing dependency.
+- **How**: 
+  - **Dependency Analysis**: Confirmed python-ass import exists in runpod-handler.py:677 with graceful fallback to generate_ass_format_fallback() on ImportError
+  - **User Feedback Integration**: User noted recent memories showed python-ass was added in WhisperX timing integration but missing from actual Dockerfile
+  - **Serena Tool Usage**: Applied user preference for Serena tools by using mcp__serena__replace_regex for file editing instead of native Claude Code Edit tool
+  - **Strategic Placement**: Added python-ass to existing pip install command in Dockerfile.runpod:45 within serverless dependencies section
+  - **Documentation Update**: Updated TASKS.md with complete task context, findings, and technical implementation details
+- **Issues**: 
+  - **Memory vs Reality Gap**: Previous implementation memories showed python-ass integration but actual Dockerfile was missing the dependency
+  - **Tool Preference Learning**: User corrected approach to use Serena tools for file editing going forward
+  - **Functionality Impact**: Missing dependency meant advanced ASS features weren't available despite code supporting them
+- **Result**:
+  - **Enhanced ASS Generation**: python-ass library now available for optimized subtitle generation with social media styling
+  - **Social Media Features**: Enables advanced ASS document creation with proper styling, colors, and positioning
+  - **Fallback Preserved**: Maintains existing fallback mechanism for graceful degradation if library issues occur
+  - **Container Optimization**: Dependency added efficiently to existing pip install command without bloating container
+  - **Tool Workflow Improved**: Established preference for Serena tools for future file editing operations
+  - **Documentation Complete**: Full task tracking in TASKS.md with findings, decisions, and technical implementation
+
+### Key Technical Changes
+- `Dockerfile.runpod:45` - Added python-ass to serverless dependencies pip install command
+- Enables enhanced ASS subtitle generation with social media optimization features
+- Preserves existing fallback mechanism for reliability and graceful degradation
+
+### Impact on Subtitle Generation
+- **Before**: python-ass ImportError triggered fallback to manual ASS generation (generate_ass_format_fallback)
+- **After**: Optimized ASS generation with python-ass library provides superior formatting and social media styling
+- **Benefit**: Professional-grade subtitle generation suitable for FFMPEG integration and social media workflows
+
+---
+
 ## 2025-08-02 23:30
 
 ### F5-TTS Audio Quality Parameter Optimization |TASK:TASK-2025-08-02-009|
