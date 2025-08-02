@@ -1,5 +1,54 @@
 # Engineering Journal
 
+## 2025-08-02 21:00
+
+### S3 Security Vulnerability Fix - Presigned URLs Implementation |TASK:TASK-2025-08-02-007|
+- **What**: Critical security fix replacing direct S3 URLs with presigned URLs for secure, credential-free file access, eliminating AWS authentication requirements for end users
+- **Why**: User identified critical vulnerability where F5-TTS API was returning direct S3 URLs requiring AWS credentials to access, making downloaded files unusable for end users without authentication. Quote: "The URL you are providing for the download endpoint is to the s3 bucket. That URL is only available usable with all of the credentials."
+- **How**: 
+  - **S3 Utils Enhancement**: Added secure presigned URL functions (s3_utils.py:73-127)
+    - `generate_presigned_download_url()` - Creates time-limited secure URLs with 1-hour expiration
+    - `upload_to_s3_with_presigned_url()` - Combines upload and presigned URL generation for atomic operations
+    - Maintains existing upload functionality while adding secure access layer
+  - **Audio Download Security**: Updated TTS generation endpoint (runpod-handler.py:653)
+    - Changed from `upload_to_s3()` returning direct S3 URLs to `upload_to_s3_with_presigned_url()`
+    - Audio files now have secure 1-hour expiration for temporary access
+    - No client-side AWS credentials required for downloads
+  - **Timing Files Security**: Completely overhauled `upload_timing_files()` function (runpod-handler.py:433-467)
+    - Replaced endpoint URLs (`/download?job_id=...&type=timing&format=...`) with presigned S3 URLs
+    - All 5 timing formats (SRT, VTT, CSV, JSON, ASS) now use secure presigned URLs
+    - Eliminated server-side download proxy requirements
+  - **API Documentation Update**: Comprehensive documentation fixes (API.md:52-63, 246-251, 338-350)
+    - Updated all response examples to show presigned URLs with AWS signature parameters
+    - Added security notes explaining 1-hour expiration and credential-free access
+    - Replaced old download patterns with direct curl examples using presigned URLs
+    - Clear guidance that no AWS credentials required by end users
+- **Issues**: 
+  - **Security Blind Spot**: Initial implementation focused on functionality without considering end-user credential requirements
+  - **Documentation Lag**: API examples showed the problematic direct S3 URLs, misleading users about actual access patterns
+  - **Architecture Assumption**: Assumed S3 bucket would be publicly accessible rather than requiring authentication
+- **Result**:
+  - **Security Compliance**: Zero AWS credentials required by end users for file access
+  - **Time-Limited Access**: All URLs expire in 1 hour, preventing long-term unauthorized access
+  - **Direct Downloads**: Users can download files directly with simple curl commands
+  - **Simplified Architecture**: Eliminated need for server-side download proxy endpoints
+  - **Production Ready**: Secure by default with automatic expiration and no credential exposure
+  - **User Experience**: Seamless downloads without authentication complexity
+  - **Documentation Accuracy**: All examples now correctly reflect secure download patterns
+
+### Key Files Modified
+- `s3_utils.py:73-127` - Added presigned URL generation functions with 1-hour expiration
+- `runpod-handler.py:653` - Updated audio uploads to use presigned URLs instead of direct S3 URLs
+- `runpod-handler.py:433-467` - Overhauled timing file uploads to return presigned URLs instead of endpoint URLs
+- `API.md:52-63, 246-251, 338-350` - Updated all response examples and documentation to show presigned URLs
+
+### Security Impact
+- **Before**: Direct S3 URLs requiring AWS credentials - unusable for end users
+- **After**: Presigned URLs with 1-hour expiration - secure, credential-free access
+- **Benefit**: Complete elimination of credential requirements while maintaining security
+
+---
+
 ## 2025-08-02 20:45
 
 ### Google Cloud Credentials Security Implementation |TASK:TASK-2025-08-02-006|

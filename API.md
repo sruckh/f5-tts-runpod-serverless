@@ -49,17 +49,17 @@ Generate text-to-speech audio using uploaded voice models. Returns results immed
 **Response** (Immediate - Synchronous)
 ```json
 {
-  "audio_url": "https://s3.us-west-001.backblazeb2.com/s3f5tts/output/dacf3df8-e5c3-4a37-b7da-1acf5cd214df.wav",
+  "audio_url": "https://s3.us-west-001.backblazeb2.com/s3f5tts/output/dacf3df8-e5c3-4a37-b7da-1acf5cd214df.wav?X-Amz-Algorithm=AWS4-HMAC-SHA256&X-Amz-Credential=...",
   "duration": 2.7413333333333334,
   "job_id": "dacf3df8-e5c3-4a37-b7da-1acf5cd214df",
   "status": "completed",
   "text": "I am a puppet, and the digital world owns me!",
   "timing_files": {
-    "srt": "/download?job_id=dacf3df8-e5c3-4a37-b7da-1acf5cd214df&type=timing&format=srt",
-    "vtt": "/download?job_id=dacf3df8-e5c3-4a37-b7da-1acf5cd214df&type=timing&format=vtt",
-    "csv": "/download?job_id=dacf3df8-e5c3-4a37-b7da-1acf5cd214df&type=timing&format=csv",
-    "json": "/download?job_id=dacf3df8-e5c3-4a37-b7da-1acf5cd214df&type=timing&format=json",
-    "ass": "/download?job_id=dacf3df8-e5c3-4a37-b7da-1acf5cd214df&type=timing&format=ass"
+    "srt": "https://s3.us-west-001.backblazeb2.com/s3f5tts/timings/dacf3df8-e5c3-4a37-b7da-1acf5cd214df.srt?X-Amz-Algorithm=AWS4-HMAC-SHA256&X-Amz-Credential=...",
+    "vtt": "https://s3.us-west-001.backblazeb2.com/s3f5tts/timings/dacf3df8-e5c3-4a37-b7da-1acf5cd214df.vtt?X-Amz-Algorithm=AWS4-HMAC-SHA256&X-Amz-Credential=...",
+    "csv": "https://s3.us-west-001.backblazeb2.com/s3f5tts/timings/dacf3df8-e5c3-4a37-b7da-1acf5cd214df.csv?X-Amz-Algorithm=AWS4-HMAC-SHA256&X-Amz-Credential=...",
+    "json": "https://s3.us-west-001.backblazeb2.com/s3f5tts/timings/dacf3df8-e5c3-4a37-b7da-1acf5cd214df.json?X-Amz-Algorithm=AWS4-HMAC-SHA256&X-Amz-Credential=...",
+    "ass": "https://s3.us-west-001.backblazeb2.com/s3f5tts/timings/dacf3df8-e5c3-4a37-b7da-1acf5cd214df.ass?X-Amz-Algorithm=AWS4-HMAC-SHA256&X-Amz-Credential=..."
   },
   "timing_format": "srt",
   "word_count": 11,
@@ -237,17 +237,17 @@ Generate TTS with word-level timing data for FFMPEG subtitle integration:
 **Response**:
 ```json
 {
-  "audio_url": "https://s3.us-west-001.backblazeb2.com/s3f5tts/output/12345.wav",
+  "audio_url": "https://s3.us-west-001.backblazeb2.com/s3f5tts/output/12345.wav?X-Amz-Algorithm=AWS4-HMAC-SHA256&X-Amz-Credential=...",
   "duration": 3.2,
   "job_id": "12345",
   "status": "completed",
   "text": "Hello world, this is a test of the timing system.",
   "timing_files": {
-    "srt": "/download?job_id=12345&type=timing&format=srt",
-    "vtt": "/download?job_id=12345&type=timing&format=vtt",
-    "csv": "/download?job_id=12345&type=timing&format=csv",
-    "json": "/download?job_id=12345&type=timing&format=json",
-    "ass": "/download?job_id=12345&type=timing&format=ass"
+    "srt": "https://s3.us-west-001.backblazeb2.com/s3f5tts/timings/12345.srt?X-Amz-Algorithm=AWS4-HMAC-SHA256&X-Amz-Credential=...",
+    "vtt": "https://s3.us-west-001.backblazeb2.com/s3f5tts/timings/12345.vtt?X-Amz-Algorithm=AWS4-HMAC-SHA256&X-Amz-Credential=...",
+    "csv": "https://s3.us-west-001.backblazeb2.com/s3f5tts/timings/12345.csv?X-Amz-Algorithm=AWS4-HMAC-SHA256&X-Amz-Credential=...",
+    "json": "https://s3.us-west-001.backblazeb2.com/s3f5tts/timings/12345.json?X-Amz-Algorithm=AWS4-HMAC-SHA256&X-Amz-Credential=...",
+    "ass": "https://s3.us-west-001.backblazeb2.com/s3f5tts/timings/12345.ass?X-Amz-Algorithm=AWS4-HMAC-SHA256&X-Amz-Credential=..."
   },
   "timing_format": "ass",
   "word_count": 10,
@@ -335,17 +335,21 @@ ffmpeg -i video.mp4 -vf "ass=subtitles.ass" output_with_subtitles.mp4
 }
 ```
 
-**Download WAV file directly from S3**:
+**Download files directly using presigned URLs**:
 ```bash
-# Get audio URL from download response
-audio_url=$(curl -X POST "https://api.runpod.ai/v2/{endpoint_id}/runsync" \
-  -H "Content-Type: application/json" \
-  -d '{"input": {"endpoint": "download", "job_id": "dacf3df8-e5c3-4a37-b7da-1acf5cd214df"}}' \
-  | jq -r '.audio_url')
+# Audio files and timing files are returned as presigned URLs
+# No additional authentication required - URLs are valid for 1 hour
 
-# Download audio file directly from S3
-curl "$audio_url" -o output.wav
+# Example: Download audio file directly
+curl "https://s3.us-west-001.backblazeb2.com/s3f5tts/output/dacf3df8-e5c3-4a37-b7da-1acf5cd214df.wav?X-Amz-Algorithm=AWS4-HMAC-SHA256&X-Amz-Credential=..." -o output.wav
+
+# Example: Download timing file directly
+curl "https://s3.us-west-001.backblazeb2.com/s3f5tts/timings/dacf3df8-e5c3-4a37-b7da-1acf5cd214df.srt?X-Amz-Algorithm=AWS4-HMAC-SHA256&X-Amz-Credential=..." -o subtitles.srt
 ```
+
+**Security Note**: All download URLs are presigned and expire after 1 hour for security. No AWS credentials are required by the client.
+
+
 
 ## Security & Configuration
 

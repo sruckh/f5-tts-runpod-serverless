@@ -70,6 +70,62 @@ def upload_to_s3(file_path, object_name):
         print(f"❌ Upload error: {e}")
         return None
 
+def generate_presigned_download_url(object_name, expiration=3600):
+    """
+    Generate a presigned URL for secure S3 object download.
+    
+    Args:
+        object_name (str): S3 object key/name
+        expiration (int): Time in seconds for URL to remain valid (default: 1 hour)
+    
+    Returns:
+        str: Presigned URL for secure download, or None if failed
+    """
+    if not s3_client or not S3_BUCKET:
+        print("❌ S3 not configured for presigned URL generation")
+        return None
+    
+    try:
+        print(f"🔐 Generating presigned URL for s3://{S3_BUCKET}/{object_name} (expires in {expiration}s)")
+        
+        # Generate presigned URL for GET operation
+        presigned_url = s3_client.generate_presigned_url(
+            'get_object',
+            Params={'Bucket': S3_BUCKET, 'Key': object_name},
+            ExpiresIn=expiration
+        )
+        
+        print(f"✅ Presigned URL generated successfully")
+        return presigned_url
+        
+    except ClientError as e:
+        print(f"❌ Failed to generate presigned URL: {e}")
+        return None
+    except Exception as e:
+        print(f"❌ Unexpected error generating presigned URL: {e}")
+        return None
+
+def upload_to_s3_with_presigned_url(file_path, object_name, expiration=3600):
+    """
+    Upload file to S3 and return a presigned URL for secure download.
+    
+    Args:
+        file_path (str): Local file path to upload
+        object_name (str): S3 object key/name
+        expiration (int): Presigned URL expiration in seconds
+    
+    Returns:
+        str: Presigned download URL, or None if upload/URL generation failed
+    """
+    # First upload the file
+    s3_url = upload_to_s3(file_path, object_name)
+    if not s3_url:
+        return None
+    
+    # Then generate presigned URL for secure access
+    presigned_url = generate_presigned_download_url(object_name, expiration)
+    return presigned_url
+
 def download_from_s3(object_name, file_path):
     """Download file from S3 with optimized error handling."""
     if not s3_client or not S3_BUCKET:

@@ -22,7 +22,7 @@ import os
 import uuid
 import requests
 from typing import Optional
-from s3_utils import upload_to_s3, download_file_from_s3_to_memory
+from s3_utils import upload_to_s3, download_file_from_s3_to_memory, upload_to_s3_with_presigned_url, generate_presigned_download_url
 import base64
 import json
 from google.cloud import speech
@@ -432,8 +432,8 @@ def format_ass_time(seconds: float) -> str:
 
 def upload_timing_files(timing_formats: dict, job_id: str) -> dict:
     """
-    Upload timing files to S3 and return download URLs.
-    Returns dict with format_name -> download_url mappings.
+    Upload timing files to S3 and return presigned download URLs.
+    Returns dict with format_name -> presigned_download_url mappings.
     """
     try:
         timing_urls = {}
@@ -445,13 +445,13 @@ def upload_timing_files(timing_formats: dict, job_id: str) -> dict:
             temp_file.close()
             
             try:
-                # Upload to S3
+                # Upload to S3 and generate presigned URL (1 hour expiration)
                 s3_key = f"timings/{job_id}.{format_name}"
-                upload_url = upload_to_s3(temp_file.name, s3_key)
+                presigned_url = upload_to_s3_with_presigned_url(temp_file.name, s3_key, expiration=3600)
                 
-                if upload_url:
-                    timing_urls[format_name] = f"/download?job_id={job_id}&type=timing&format={format_name}"
-                    print(f"✅ Uploaded {format_name} timing file: {s3_key}")
+                if presigned_url:
+                    timing_urls[format_name] = presigned_url
+                    print(f"✅ Uploaded {format_name} timing file with presigned URL: {s3_key}")
                 else:
                     print(f"❌ Failed to upload {format_name} timing file")
                     
@@ -648,7 +648,9 @@ def handler(job):
             try:
                 job_id = str(uuid.uuid4())
                 output_key = f"output/{job_id}.wav"
-                audio_url = upload_to_s3(output_file, output_key)
+                
+                # Upload to S3 and generate secure presigned URL (1 hour expiration)
+                audio_url = upload_to_s3_with_presigned_url(output_file, output_key, expiration=3600)
                 
                 if not audio_url:
                     return {"error": "Failed to upload generated audio to S3"}
