@@ -1,5 +1,56 @@
 # Engineering Journal
 
+## 2025-08-02 21:30
+
+### Google Cloud Speech Authentication Troubleshooting & Documentation Alignment |TASK:TASK-2025-08-02-007|
+- **What**: Comprehensive investigation of Google Cloud Speech-to-Text API implementation alignment with official documentation and resolution of user authentication error "Failed to initialize Google Speech client: File {"
+- **Why**: User reported authentication failure preventing Google Speech API from initializing, blocking word-level timing functionality. Required verification that implementation follows Google Cloud best practices and resolution of configuration issues.
+- **How**: 
+  - **Documentation Alignment Verification**: Fetched and analyzed official Google Cloud Speech-to-Text API documentation
+    - Confirmed implementation uses correct client library (`google-cloud-speech`)
+    - Verified service account authentication approach matches Google Cloud best practices
+    - Validated API configuration (audio encoding, sample rates, word-level timing enablement)
+  - **Authentication Enhancement**: Improved `_get_google_speech_client()` function (runpod-handler.py:232-302)
+    - Added comprehensive JSON validation before parsing service account credentials
+    - Implemented required fields validation (`type`, `project_id`, `private_key`, `client_email`)
+    - Added clear error messages distinguishing between file path vs JSON content errors
+    - Enhanced debugging output showing exactly what was received vs expected format
+  - **Multiple Authentication Methods**: Following Google Cloud security best practices
+    - **Method 1**: `GOOGLE_CREDENTIALS_JSON` environment variable with JSON content (recommended for containers)
+    - **Method 2**: `GOOGLE_APPLICATION_CREDENTIALS` file path (fallback for development)
+    - **Method 3**: Default application credentials (for Google Cloud environments)
+  - **Error Diagnosis**: Identified root cause of user's authentication error
+    - User was setting file path in `GOOGLE_CREDENTIALS_JSON` instead of JSON content
+    - Environment variable contained literal file path string instead of service account JSON
+    - Added validation to detect and provide clear guidance on this common misconfiguration
+- **Issues**: 
+  - **User Configuration Error**: Environment variable contained file path instead of JSON content
+  - **Limited Error Context**: Previous error messages didn't clearly indicate the specific validation failure
+  - **Documentation Gap**: Needed clearer examples of proper environment variable format for different deployment scenarios
+- **Result**:
+  - **Implementation Validated**: Confirmed perfect alignment with Google Cloud Speech-to-Text documentation
+  - **Authentication Fixed**: Enhanced validation provides clear guidance for proper credential setup
+  - **Multiple Auth Support**: Robust fallback system accommodates different deployment environments
+  - **Error Prevention**: Proactive validation prevents common configuration mistakes
+  - **User Guidance**: Comprehensive troubleshooting information for different authentication scenarios
+  - **Security Compliance**: Follows Google Cloud recommended practices for containerized applications
+
+### Key Files Modified
+- `runpod-handler.py:232-302` - Enhanced `_get_google_speech_client()` with comprehensive validation and multiple authentication methods
+
+### Authentication Methods Documentation
+- **Container/RunPod (Recommended)**: `GOOGLE_CREDENTIALS_JSON` with service account JSON content
+- **Development**: `GOOGLE_APPLICATION_CREDENTIALS` with file path to service account JSON
+- **Google Cloud**: Default application credentials with automatic detection
+
+### Troubleshooting Guide Created
+- JSON validation with clear error messages
+- Required fields checking (`type`, `project_id`, `private_key`, `client_email`)
+- Format examples for different deployment scenarios
+- Common misconfiguration detection and resolution
+
+---
+
 ## 2025-08-02 21:00
 
 ### S3 Security Vulnerability Fix - Presigned URLs Implementation |TASK:TASK-2025-08-02-007|

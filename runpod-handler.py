@@ -241,30 +241,63 @@ def _get_google_speech_client():
             import json
             
             print("🔐 Initializing Google Speech client with service account credentials")
-            credentials_info = json.loads(credentials_json)
-            credentials = service_account.Credentials.from_service_account_info(credentials_info)
-            return speech.SpeechClient(credentials=credentials)
+            
+            # Validate JSON before parsing
+            if not credentials_json.strip().startswith('{'):
+                print("❌ GOOGLE_CREDENTIALS_JSON must contain JSON content, not a file path")
+                print("   Expected: '{\"type\":\"service_account\",...}'")
+                print(f"   Got: {credentials_json[:50]}...")
+                return None
+            
+            try:
+                credentials_info = json.loads(credentials_json)
+                
+                # Validate required fields
+                required_fields = ['type', 'project_id', 'private_key', 'client_email']
+                missing_fields = [field for field in required_fields if field not in credentials_info]
+                if missing_fields:
+                    print(f"❌ Missing required fields in service account JSON: {missing_fields}")
+                    return None
+                
+                if credentials_info.get('type') != 'service_account':
+                    print(f"❌ Invalid credential type: {credentials_info.get('type')}. Expected: service_account")
+                    return None
+                    
+                credentials = service_account.Credentials.from_service_account_info(credentials_info)
+                client = speech.SpeechClient(credentials=credentials)
+                print(f"✅ Google Speech client initialized for project: {credentials_info['project_id']}")
+                return client
+                
+            except json.JSONDecodeError as e:
+                print(f"❌ Invalid JSON in GOOGLE_CREDENTIALS_JSON: {e}")
+                print("   Ensure the environment variable contains properly escaped JSON content")
+                return None
         
-        # Method 2: API Key from environment variable (simpler but less secure)
-        api_key = os.environ.get('GOOGLE_API_KEY')
-        if api_key:
-            print("🔑 Initializing Google Speech client with API key")
-            # Note: For API key usage, you would need to use the REST API directly
-            # The Python client library requires service account credentials
-            print("⚠️ API key method requires REST API implementation")
-            return None
-        
-        # Method 3: Default credentials (for local development)
-        if os.environ.get('GOOGLE_APPLICATION_CREDENTIALS'):
-            print("🔧 Using default Google credentials from GOOGLE_APPLICATION_CREDENTIALS")
+        # Method 2: Service account file path (fallback for development)
+        credentials_file = os.environ.get('GOOGLE_APPLICATION_CREDENTIALS')
+        if credentials_file and os.path.exists(credentials_file):
+            print(f"🔧 Using service account file: {credentials_file}")
             return speech.SpeechClient()
         
+        # Method 3: Default application credentials (for Google Cloud environments)
+        try:
+            print("🔍 Attempting to use default application credentials...")
+            client = speech.SpeechClient()
+            print("✅ Using default application credentials")
+            return client
+        except Exception:
+            pass
+        
         print("⚠️ No Google Cloud credentials found. Timing features will be disabled.")
-        print("   Set GOOGLE_CREDENTIALS_JSON environment variable with service account JSON content")
+        print("   To enable timing features, set one of:")
+        print("   - GOOGLE_CREDENTIALS_JSON: Service account JSON content")
+        print("   - GOOGLE_APPLICATION_CREDENTIALS: Path to service account file")
         return None
         
     except Exception as e:
         print(f"❌ Failed to initialize Google Speech client: {e}")
+        import traceback
+        traceback.print_exc()
         return None
 
 def extract_word_timings(audio_file_path: str, text: str) -> Optional[dict]:
