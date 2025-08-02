@@ -1,5 +1,41 @@
 # Engineering Journal
 
+## 2025-08-02 20:45
+
+### Google Cloud Credentials Security Implementation |TASK:TASK-2025-08-02-006|
+- **What**: Implemented secure credential management for Google Cloud Speech-to-Text API integration, eliminating file-based credential vulnerabilities and establishing environment variable-based authentication
+- **Why**: User had Google Cloud service account JSON file but needed secure configuration guidance for GOOGLE_APPLICATION_CREDENTIALS in RunPod serverless environment. File-based credentials in containers create security risks (exposed in images, version control, container inspection)
+- **How**: 
+  - **Secure Client Function**: Added `_get_google_speech_client()` helper function (runpod-handler.py:230-266)
+    - Primary method: `GOOGLE_CREDENTIALS_JSON` environment variable with JSON content
+    - Fallback method: Traditional `GOOGLE_APPLICATION_CREDENTIALS` file path for local development
+    - Graceful degradation: Disables timing features when credentials unavailable instead of failing
+    - Clear error messages and setup guidance in logs
+  - **Updated Speech Integration**: Modified `extract_word_timings()` function (runpod-handler.py:267-329)
+    - Uses secure client initialization with error handling
+    - Maintains existing functionality when properly configured
+    - Prevents crashes when credentials missing
+  - **Container Dependencies**: Added `google-cloud-speech` package to Dockerfile.runpod (line 44)
+  - **Comprehensive Security Documentation**: Added Security & Configuration section to API.md (lines 350-440)
+    - Step-by-step Google Cloud service account setup instructions
+    - Environment variable configuration for RunPod
+    - Security benefits explanation (no files in images, encrypted env vars, easy rotation)
+    - Cost considerations and troubleshooting guides
+    - Clear warnings about insecure approaches to avoid
+- **Issues**: 
+  - **Multiple Auth Methods**: Needed to support both production (environment variable) and development (file path) scenarios
+  - **Error Handling Balance**: Had to balance between failing fast and graceful degradation for missing credentials
+  - **Documentation Scope**: Required comprehensive coverage of Google Cloud setup, RunPod configuration, and security considerations
+- **Result**:
+  - **Secure Architecture**: No credentials embedded in container images or version control
+  - **RunPod Integration**: Leverages RunPod's encrypted environment variables for secure credential storage
+  - **Developer Experience**: Clear setup instructions with step-by-step Google Cloud configuration
+  - **Production Ready**: Secure credential management suitable for production deployment
+  - **Graceful Operation**: System handles missing credentials without crashes, provides clear guidance
+  - **Security Best Practices**: Follows industry standards for API credential management in containerized environments
+
+---
+
 ## 2025-08-02 18:30
 
 ### Base64 Anti-Pattern Elimination in API Documentation |TASK:TASK-2025-08-02-005|

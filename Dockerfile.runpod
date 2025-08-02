@@ -40,7 +40,8 @@ RUN pip install --no-cache-dir \
     requests \
     librosa \
     soundfile \
-    "transformers>=4.48.1"
+    "transformers>=4.48.1" \
+    google-cloud-speech
 
 # =============================================================================
 # APPLICATION CODE

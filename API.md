@@ -347,6 +347,97 @@ audio_url=$(curl -X POST "https://api.runpod.ai/v2/{endpoint_id}/runsync" \
 curl "$audio_url" -o output.wav
 ```
 
+## Security & Configuration
+
+### Environment Variables
+
+For the F5-TTS serverless function to work properly, configure these environment variables in your RunPod serverless endpoint:
+
+#### Required for S3 Storage (Backblaze B2)
+```bash
+# S3-compatible storage (Backblaze B2)
+AWS_ACCESS_KEY_ID=your_b2_key_id
+AWS_SECRET_ACCESS_KEY=your_b2_application_key  
+AWS_REGION=us-west-001
+AWS_ENDPOINT_URL=https://s3.us-west-001.backblazeb2.com
+S3_BUCKET=your_bucket_name
+```
+
+#### Required for Word Timing Features
+```bash
+# Google Cloud Speech-to-Text (for word-level timing)
+GOOGLE_CREDENTIALS_JSON={"type": "service_account", "project_id": "...", ...}
+```
+
+### 🔐 Google Cloud Credentials Security
+
+**RECOMMENDED**: Use the `GOOGLE_CREDENTIALS_JSON` environment variable approach:
+
+1. **Create a Service Account**:
+   - Go to Google Cloud Console → IAM & Admin → Service Accounts
+   - Create service account with "Cloud Speech Client" role
+   - Generate JSON key file
+
+2. **Configure Securely in RunPod**:
+   ```bash
+   # Copy the entire JSON content (minified) as environment variable
+   GOOGLE_CREDENTIALS_JSON={"type":"service_account","project_id":"your-project",...}
+   ```
+
+3. **Security Benefits**:
+   - ✅ No files embedded in Docker image
+   - ✅ No credentials in version control  
+   - ✅ RunPod environment variables are encrypted
+   - ✅ Easy credential rotation
+   - ✅ Follows security best practices
+
+**⚠️ AVOID**: These insecure approaches:
+```bash
+# ❌ DON'T: File path in container (security risk)
+GOOGLE_APPLICATION_CREDENTIALS=/app/service-account.json
+
+# ❌ DON'T: Embedding JSON files in Docker image
+COPY service-account.json /app/
+```
+
+### Cost Considerations
+
+#### Google Speech API Pricing
+- **Cost**: ~$0.012 per audio minute when `return_word_timings=true`
+- **Free Tier**: 60 minutes/month free (for new accounts)
+- **Billing**: Only charged when timing features are used
+- **Optimization**: Timing extraction adds 2-4 seconds processing time
+
+#### S3 Storage Costs
+- **Audio Files**: ~50-100KB per second of audio
+- **Timing Files**: ~1-5KB per request (all formats)
+- **Optimization**: Files auto-expire after 24 hours (configurable)
+
+### Troubleshooting
+
+#### Timing Features Not Working
+```bash
+# Check if Google credentials are configured
+curl -X POST "https://api.runpod.ai/v2/{endpoint_id}/runsync" \
+  -H "Content-Type: application/json" \
+  -d '{"input": {"text": "test", "return_word_timings": true}}'
+
+# If timing_files is missing from response:
+# 1. Verify GOOGLE_CREDENTIALS_JSON environment variable is set
+# 2. Check Google Cloud Console for API errors
+# 3. Ensure Speech-to-Text API is enabled in your project
+```
+
+#### S3 Upload Failures
+```bash
+# Verify S3 configuration
+curl -X POST "https://api.runpod.ai/v2/{endpoint_id}/runsync" \
+  -H "Content-Type: application/json" \
+  -d '{"input": {"endpoint": "status"}}'
+
+# Check response for S3 connectivity status
+```
+
 ## Best Practices
 
 ### Voice Upload

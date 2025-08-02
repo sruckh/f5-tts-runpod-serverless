@@ -228,6 +228,45 @@ def generate_tts_audio(text: str, voice_path: Optional[str] = None, speed: float
         
         return None, 0, error_msg
 
+def _get_google_speech_client():
+    """
+    Initialize Google Speech client securely using environment variables.
+    Returns Google Speech client or None if credentials not available.
+    """
+    try:
+        # Method 1: Service account JSON content from environment variable (RECOMMENDED)
+        credentials_json = os.environ.get('GOOGLE_CREDENTIALS_JSON')
+        if credentials_json:
+            from google.oauth2 import service_account
+            import json
+            
+            print("🔐 Initializing Google Speech client with service account credentials")
+            credentials_info = json.loads(credentials_json)
+            credentials = service_account.Credentials.from_service_account_info(credentials_info)
+            return speech.SpeechClient(credentials=credentials)
+        
+        # Method 2: API Key from environment variable (simpler but less secure)
+        api_key = os.environ.get('GOOGLE_API_KEY')
+        if api_key:
+            print("🔑 Initializing Google Speech client with API key")
+            # Note: For API key usage, you would need to use the REST API directly
+            # The Python client library requires service account credentials
+            print("⚠️ API key method requires REST API implementation")
+            return None
+        
+        # Method 3: Default credentials (for local development)
+        if os.environ.get('GOOGLE_APPLICATION_CREDENTIALS'):
+            print("🔧 Using default Google credentials from GOOGLE_APPLICATION_CREDENTIALS")
+            return speech.SpeechClient()
+        
+        print("⚠️ No Google Cloud credentials found. Timing features will be disabled.")
+        print("   Set GOOGLE_CREDENTIALS_JSON environment variable with service account JSON content")
+        return None
+        
+    except Exception as e:
+        print(f"❌ Failed to initialize Google Speech client: {e}")
+        return None
+
 def extract_word_timings(audio_file_path: str, text: str) -> Optional[dict]:
     """
     Extract word-level timings using Google Cloud Speech-to-Text.
@@ -236,8 +275,11 @@ def extract_word_timings(audio_file_path: str, text: str) -> Optional[dict]:
     try:
         print("🎙️ Extracting word timings using Google Speech API...")
         
-        # Initialize Google Speech client
-        client = speech.SpeechClient()
+        # Initialize Google Speech client securely
+        client = _get_google_speech_client()
+        if not client:
+            print("❌ Google Speech client not available - credentials not configured")
+            return None
         
         # Read the audio file
         with open(audio_file_path, 'rb') as audio_file:
