@@ -1,5 +1,48 @@
 # Engineering Journal
 
+## 2025-08-02 22:15
+
+### Google Speech API Timing Extraction Attribute Fix |TASK:TASK-2025-08-02-008|
+- **What**: Fixed critical AttributeError in Google Cloud Speech-to-Text timing extraction caused by API response format changes from protobuf Duration to datetime.timedelta objects
+- **Why**: User reported "AttributeError: 'datetime.timedelta' object has no attribute 'nanos'" preventing word-level timing functionality from working. This broke the core Day 1 timing feature for FFMPEG subtitle integration.
+- **How**: 
+  - **Root Cause Analysis**: Google Speech API response format evolved from protobuf Duration objects (with .seconds/.nanos attributes) to datetime.timedelta objects (with .total_seconds() method)
+  - **Multi-Format Detection**: Implemented robust timing format detection in `extract_word_timings()` function (runpod-handler.py:302-367)
+    - **timedelta objects**: Use `.total_seconds()` method for accurate float conversion
+    - **Duration objects**: Preserve original `.seconds + .nanos * 1e-9` formula for backward compatibility
+    - **Numeric values**: Direct float conversion with error handling for edge cases
+    - **Unknown formats**: Log detailed warning with type information but continue processing
+  - **Graceful Error Handling**: Added comprehensive error handling that prevents crashes while providing detailed logging
+    - Skip problematic words rather than failing entire timing extraction
+    - Log unknown timing formats with type information for debugging
+    - Maintain processing flow even when some words have incompatible timing data
+  - **Context7 Documentation Research**: Confirmed Google Cloud Speech API documentation patterns and verified proper implementation approach
+- **Issues**: 
+  - **API Evolution**: Google Speech API silently changed response format without clear deprecation warnings
+  - **Backward Compatibility**: Needed to support both old (Duration) and new (timedelta) response formats
+  - **Error Detection**: Original code assumed consistent API response structure across versions
+- **Result**:
+  - **Timing Functionality Restored**: Word-level timing extraction now works with current Google Speech API versions
+  - **Multi-Version Support**: Single implementation handles multiple API response formats gracefully
+  - **Robust Error Handling**: System continues operating even with unknown timing formats
+  - **Future-Proof Design**: Extensible architecture accommodates future API format changes
+  - **Comprehensive Logging**: Detailed error information helps diagnose timing extraction issues
+  - **Production Ready**: No more crashes on timing extraction, graceful degradation when needed
+
+### Key Technical Changes
+- `runpod-handler.py:302-367` - Enhanced `extract_word_timings()` with multi-format timing detection
+- Added support for `datetime.timedelta.total_seconds()` method (new API format)
+- Preserved `Duration.seconds + Duration.nanos * 1e-9` formula (legacy API format)
+- Implemented graceful error handling with detailed logging for unknown formats
+- Future-proofed design for additional timing format variations
+
+### Impact on Core Functionality
+- **Before**: Timing extraction failed with AttributeError, breaking subtitle generation
+- **After**: Robust timing extraction works across multiple Google Speech API versions
+- **Benefit**: Core Day 1 FFMPEG integration functionality fully restored and future-proofed
+
+---
+
 ## 2025-08-02 21:30
 
 ### Google Cloud Speech Authentication Troubleshooting & Documentation Alignment |TASK:TASK-2025-08-02-007|

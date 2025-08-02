@@ -7,34 +7,40 @@
 **Progress**: 1/2 tasks completed
 
 ## Current Task
-**Task ID**: TASK-2025-08-02-007
-**Title**: Google Cloud Speech Authentication Troubleshooting & Documentation Alignment
+**Task ID**: TASK-2025-08-02-008
+**Title**: Google Speech API Timing Extraction Attribute Fix
 **Status**: COMPLETE
-**Started**: 2025-08-02 21:00
-**Completed**: 2025-08-02 21:30
+**Started**: 2025-08-02 22:00
+**Completed**: 2025-08-02 22:15
 
 ### Task Context
-- **Previous Work**: Google Cloud credentials security implementation (TASK-2025-08-02-006)
-- **User Issue**: Authentication error "Failed to initialize Google Speech client: File {"
+- **Previous Work**: Google Cloud Speech Authentication Troubleshooting (TASK-2025-08-02-007)
+- **User Issue**: AttributeError: 'datetime.timedelta' object has no attribute 'nanos' in timing extraction
 - **Key Files**: 
-  - `runpod-handler.py:232-302` - Enhanced _get_google_speech_client() with improved validation
-  - Documentation alignment verified against official Google Cloud Speech-to-Text API
-- **Investigation Goal**: Verify implementation alignment and fix authentication error
+  - `runpod-handler.py:302-367` - Fixed extract_word_timings() function with robust timing format handling
+- **Critical Issue**: Google Speech API response format changed, breaking word-level timing extraction
+- **Fix Goal**: Restore timing functionality with support for multiple API response formats
 
 ### Findings & Decisions
-- **FINDING-001**: Implementation perfectly aligned with Google Cloud Speech-to-Text documentation
-- **FINDING-002**: Authentication error caused by malformed JSON in GOOGLE_CREDENTIALS_JSON environment variable
-- **FINDING-003**: User was setting file path instead of JSON content in environment variable
-- **DECISION-001**: Enhanced JSON validation with clear error messages and troubleshooting guidance
-- **DECISION-002**: Added multiple authentication fallback methods following Google Cloud best practices
-- **DECISION-003**: Implemented comprehensive validation of service account JSON structure
+- **FINDING-001**: Google Speech API timing objects now return datetime.timedelta instead of protobuf Duration
+- **FINDING-002**: Multiple timing formats exist across different API versions (timedelta, Duration, numeric)
+- **FINDING-003**: Original code assumed .seconds and .nanos attributes always available
+- **DECISION-001**: Implement multi-format timing detection with graceful fallbacks
+- **DECISION-002**: Use .total_seconds() for timedelta objects, preserve .seconds + .nanos for Duration objects
+- **DECISION-003**: Add comprehensive error handling with detailed logging for unknown formats
 
 ### Changes Made
-- **Enhanced Authentication Validation**: Added JSON structure validation and required fields checking
-- **Improved Error Messages**: Clear guidance on proper environment variable format
-- **Multiple Auth Methods**: File-based fallback and default credentials for different environments
-- **Documentation Verification**: Confirmed implementation matches Google Cloud best practices
-- **Troubleshooting Guide**: Added comprehensive setup instructions for different deployment scenarios
+- **Robust Format Detection**: Added support for datetime.timedelta, protobuf Duration, and numeric timing formats
+- **Graceful Fallbacks**: Multiple detection methods prevent single-point-of-failure in timing extraction
+- **Error Handling**: Unknown timing formats logged with warnings but don't crash the system
+- **Backward Compatibility**: Maintains support for older Google Speech API response formats
+- **Future-Proofing**: Extensible design accommodates future API format changes
+
+### Technical Implementation
+- **timedelta objects**: Use `.total_seconds()` method for accurate conversion
+- **Duration objects**: Use `.seconds + .nanos * 1e-9` formula for nanosecond precision
+- **Numeric values**: Direct float conversion with error handling
+- **Unknown formats**: Log warning with type information and skip problematic words
 
 ## Previous Task
 **Task ID**: TASK-2025-08-02-006

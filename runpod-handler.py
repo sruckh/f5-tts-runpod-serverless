@@ -343,10 +343,54 @@ def extract_word_timings(audio_file_path: str, text: str) -> Optional[dict]:
             alternative = result.alternatives[0]
             
             for word_info in alternative.words:
+                # Handle different timing formats (Duration vs timedelta vs protobuf)
+                start_time = 0.0
+                end_time = 0.0
+                
+                # Convert start_time to float seconds
+                if hasattr(word_info.start_time, 'total_seconds'):
+                    # datetime.timedelta object
+                    start_time = word_info.start_time.total_seconds()
+                elif hasattr(word_info.start_time, 'seconds'):
+                    # Google protobuf Duration object
+                    start_time = word_info.start_time.seconds
+                    if hasattr(word_info.start_time, 'nanos'):
+                        start_time += word_info.start_time.nanos * 1e-9
+                elif hasattr(word_info.start_time, 'microseconds'):
+                    # Alternative timedelta format
+                    start_time = word_info.start_time.total_seconds()
+                else:
+                    # Try direct conversion if it's already a number
+                    try:
+                        start_time = float(word_info.start_time)
+                    except (TypeError, ValueError):
+                        print(f"⚠️ Unknown start_time format: {type(word_info.start_time)} - {word_info.start_time}")
+                        continue
+                
+                # Convert end_time to float seconds
+                if hasattr(word_info.end_time, 'total_seconds'):
+                    # datetime.timedelta object
+                    end_time = word_info.end_time.total_seconds()
+                elif hasattr(word_info.end_time, 'seconds'):
+                    # Google protobuf Duration object
+                    end_time = word_info.end_time.seconds
+                    if hasattr(word_info.end_time, 'nanos'):
+                        end_time += word_info.end_time.nanos * 1e-9
+                elif hasattr(word_info.end_time, 'microseconds'):
+                    # Alternative timedelta format
+                    end_time = word_info.end_time.total_seconds()
+                else:
+                    # Try direct conversion if it's already a number
+                    try:
+                        end_time = float(word_info.end_time)
+                    except (TypeError, ValueError):
+                        print(f"⚠️ Unknown end_time format: {type(word_info.end_time)} - {word_info.end_time}")
+                        continue
+                
                 word = {
                     'word': word_info.word,
-                    'start_time': word_info.start_time.seconds + word_info.start_time.nanos * 1e-9,
-                    'end_time': word_info.end_time.seconds + word_info.end_time.nanos * 1e-9,
+                    'start_time': start_time,
+                    'end_time': end_time,
                     'confidence': alternative.confidence
                 }
                 words.append(word)
