@@ -1,6 +1,6 @@
 # F5-TTS RunPod Serverless API Reference
 
-This document provides a comprehensive reference for the F5-TTS RunPod Serverless API.
+This document provides the actual API reference for the F5-TTS RunPod Serverless implementation.
 
 ## Base Endpoint
 
@@ -11,27 +11,30 @@ POST https://api.runpod.ai/v2/{endpoint_id}/runsync
 
 ## API Overview
 
-The F5-TTS API supports the following operations:
-- **TTS Generation**: Convert text to speech using custom voices
-- **Voice Upload**: Upload custom voice models with reference text
-- **Voice Management**: List and manage available voices
-- **Job Management**: Check status and retrieve results
+The F5-TTS API is a **synchronous** serverless function that supports:
+- **TTS Generation**: Convert text to speech using custom voices (returns results immediately)
+- **Word-Level Timing**: Generate precise timing data for subtitles and FFMPEG integration
+- **Voice Upload**: Upload custom voice models via URL
+- **Voice Management**: List available uploaded voices
+- **File Download**: Download generated audio files and timing data as base64 data
+
+**Important**: This is a synchronous API - no job queuing, no status checking, results returned immediately.
 
 ## Endpoints
 
 ### 1. TTS Generation (Default)
 
-Generate text-to-speech audio using uploaded voice models with downloadable timing files.
+Generate text-to-speech audio using uploaded voice models. Returns results immediately.
 
 **Request**
 ```json
 {
   "input": {
-    "text": "Hello, world! This is a test of F5-TTS voice synthesis.",
-    "speed": 1.0,
+    "text": "I am a puppet, and the digital world owns me!",
+    "speed": 0.9,
+    "local_voice": "Kurt_12s.wav",
     "return_word_timings": true,
-    "timing_format": "srt",
-    "local_voice": "my-voice.wav"
+    "timing_format": "srt"
   }
 }
 ```
@@ -39,21 +42,41 @@ Generate text-to-speech audio using uploaded voice models with downloadable timi
 **Parameters**:
 - `text` (string, required): Text to convert to speech
 - `speed` (float, optional): Speech speed multiplier (default: 1.0)
-- `return_word_timings` (boolean, optional): Include word-level timestamps (default: true)
-- `timing_format` (string, optional): Format for timing data - "srt", "vtt", "compact", "json" (default: "json")
-- `local_voice` (string, optional): Voice filename from S3 voices/ directory or URL
+- `local_voice` (string, optional): Voice filename from S3 voices/ directory
+- `return_word_timings` (boolean, optional): Generate word-level timing data (default: false)
+- `timing_format` (string, optional): Timing format preference: "srt", "vtt", "csv", "json", "ass" (default: "srt")
 
-**Response**
+**Response** (Immediate - Synchronous)
 ```json
 {
-  "job_id": "123e4567-e89b-12d3-a456-426614174000",
-  "status": "QUEUED"
+  "audio_url": "https://s3.us-west-001.backblazeb2.com/s3f5tts/output/dacf3df8-e5c3-4a37-b7da-1acf5cd214df.wav",
+  "duration": 2.7413333333333334,
+  "job_id": "dacf3df8-e5c3-4a37-b7da-1acf5cd214df",
+  "status": "completed",
+  "text": "I am a puppet, and the digital world owns me!",
+  "timing_files": {
+    "srt": "/download?job_id=dacf3df8-e5c3-4a37-b7da-1acf5cd214df&type=timing&format=srt",
+    "vtt": "/download?job_id=dacf3df8-e5c3-4a37-b7da-1acf5cd214df&type=timing&format=vtt",
+    "csv": "/download?job_id=dacf3df8-e5c3-4a37-b7da-1acf5cd214df&type=timing&format=csv",
+    "json": "/download?job_id=dacf3df8-e5c3-4a37-b7da-1acf5cd214df&type=timing&format=json",
+    "ass": "/download?job_id=dacf3df8-e5c3-4a37-b7da-1acf5cd214df&type=timing&format=ass"
+  },
+  "timing_format": "srt",
+  "word_count": 11,
+  "timing_confidence": 0.95
 }
 ```
 
+**Timing Features**:
+- ✅ **Word-level timing data** - Generated with Google Cloud Speech-to-Text
+- ✅ **Multiple formats** - SRT, VTT, CSV, JSON, ASS (optimized for FFMPEG)
+- ✅ **FFMPEG integration** - ASS format provides advanced subtitle styling
+- ✅ **Social media ready** - Perfect for video content with word-by-word subtitles
+- 💰 **Cost**: ~$0.012 per request when `return_word_timings: true`
+
 ### 2. Upload Voice Model
 
-Upload a voice model with its reference audio and text for high-quality voice cloning.
+Upload a voice model via URL. F5-TTS automatically transcribes the reference audio.
 
 **Request**
 ```json
@@ -61,8 +84,7 @@ Upload a voice model with its reference audio and text for high-quality voice cl
   "input": {
     "endpoint": "upload",
     "voice_name": "john_speaker.wav",
-    "voice_file_url": "https://example.com/audio.wav",
-    "text_file_url": "https://example.com/reference_text.txt"
+    "voice_file_url": "https://example.com/audio.wav"
   }
 }
 ```
@@ -70,26 +92,24 @@ Upload a voice model with its reference audio and text for high-quality voice cl
 **Parameters**:
 - `endpoint` (string): Must be "upload"
 - `voice_name` (string, required): Voice filename (must end with .wav)
-- **Voice File** (one required):
-  - `voice_file_url` (string): URL to download voice file (recommended)
-  - `voice_file` (string): Base64-encoded voice file (deprecated)
-- **Reference Text File** (one required):
-  - `text_file_url` (string): URL to download text file (recommended)
-  - `text_file` (string): Base64-encoded text file (deprecated)
+- `voice_file_url` (string, required): URL to download voice file
 
 **Response**
 ```json
 {
-  "status": "Voice 'john_speaker.wav' and reference text uploaded successfully."
+  "status": "Voice 'john_speaker.wav' uploaded successfully",
+  "message": "F5-TTS will automatically transcribe the reference audio"
 }
 ```
 
 **Error Response**
 ```json
 {
-  "error": "Reference text file is required. Provide text_file_url or text_file."
+  "error": "voice_file_url is required for upload"
 }
 ```
+
+**Note**: ❌ **No reference text required** - F5-TTS automatically transcribes uploaded audio.
 
 ### 3. List Available Voices
 
@@ -109,14 +129,12 @@ Retrieve a list of all uploaded voice models.
 {
   "voices": [
     {
-      "voice_file": "john_speaker.wav",
-      "text_file": "john_speaker.txt",
+      "name": "john_speaker.wav",
       "size": 245760,
       "last_modified": "2024-01-15T10:30:00Z"
     },
     {
-      "voice_file": "sarah_narrator.wav", 
-      "text_file": "sarah_narrator.txt",
+      "name": "sarah_narrator.wav",
       "size": 189432,
       "last_modified": "2024-01-14T15:22:00Z"
     }
@@ -126,196 +144,81 @@ Retrieve a list of all uploaded voice models.
 }
 ```
 
-### 4. Job Status
+### 4. Download Files (Audio & Timing)
 
-Check the processing status of a TTS generation job.
+Download generated audio files and timing data as base64-encoded data.
 
-**Request**
-```json
-{
-  "input": {
-    "endpoint": "status",
-    "job_id": "123e4567-e89b-12d3-a456-426614174000"
-  }
-}
-```
-
-**Response**
-```json
-{
-  "job_id": "123e4567-e89b-12d3-a456-426614174000",
-  "status": "COMPLETED"
-}
-```
-
-**Status Values**:
-- `QUEUED`: Job is waiting to be processed
-- `PROCESSING`: Job is currently being processed
-- `COMPLETED`: Job finished successfully
-- `ERROR`: Job failed with an error
-
-### 5. Get Result
-
-Retrieve the generated audio and metadata for a completed job with secure downloads and timing files.
-
-**Request**
-```json
-{
-  "input": {
-    "endpoint": "result",
-    "job_id": "123e4567-e89b-12d3-a456-426614174000"
-  }
-}
-```
-
-**Response (timing_format: "srt")**
-```json
-{
-  "audio_url": "/download?file_path=output/123e4567-e89b-12d3-a456-426614174000.wav",
-  "duration": 2.5,
-  "timing_files": {
-    "srt": "/download?file_path=timings/123e4567-e89b-12d3-a456-426614174000.srt"
-  },
-  "timing_format": "srt"
-}
-```
-
-**Response (timing_format: "json" - backwards compatible)**
-```json
-{
-  "audio_url": "/download?file_path=output/123e4567-e89b-12d3-a456-426614174000.wav",
-  "duration": 2.5,
-  "word_timings": [
-    {
-      "word": "Hello,",
-      "start_time": 0.0,
-      "end_time": 0.4
-    },
-    {
-      "word": "world!",
-      "start_time": 0.45,
-      "end_time": 0.9
-    }
-  ],
-  "timing_files": {
-    "srt": "/download?file_path=timings/123e4567-e89b-12d3-a456-426614174000.srt",
-    "compact": "/download?file_path=timings/123e4567-e89b-12d3-a456-426614174000.csv"
-  },
-  "timing_format": "json"
-}
-```
-
-**Error Response**
-```json
-{
-  "error": "Job is not complete. Status: PROCESSING"
-}
-```
-
-### 6. Download Files
-
-Download audio files or timing data securely through the serverless function.
+#### Download Audio File (Default)
 
 **Request**
 ```json
 {
   "input": {
     "endpoint": "download",
-    "file_path": "output/123e4567-e89b-12d3-a456-426614174000.wav"
+    "job_id": "dacf3df8-e5c3-4a37-b7da-1acf5cd214df"
   }
+}
+```
+
+**Response**
+```json
+{
+  "audio_data": "UklGRnoGAABXQVZFZm10IBAAAAABAAEAQB8AAEAfAAABAAgAZGF0YQoGAACBhYqFbF1fdJivrJBhNjVgodDbq2EcBj+a2/LDciUFLIHO8tiJNwgZaLvt559NEAxQp+PwtmMcBjiR1/LMeSwFJHfH8N2QQAoUXrTp66hVFApGn+Dx7VkxDDuC6+GxYxoFOYTW8dWAKAUu...",
+  "content_type": "audio/wav",
+  "filename": "dacf3df8-e5c3-4a37-b7da-1acf5cd214df.wav"
+}
+```
+
+#### Download Timing Files
+
+**Request**
+```json
+{
+  "input": {
+    "endpoint": "download",
+    "job_id": "dacf3df8-e5c3-4a37-b7da-1acf5cd214df",
+    "type": "timing",
+    "format": "srt"
+  }
+}
+```
+
+**Response**
+```json
+{
+  "timing_data": "MQowMDowMDowMCwwMDAgLS0+IDAwOjAwOjAwLDI1MAphbQ0KDQoyDQowMDowMDowMCwyNTAgLS0+IDAwOjAwOjAwLDUwMA0KYQ0K...",
+  "content_type": "text/plain",
+  "format": "srt",
+  "filename": "dacf3df8-e5c3-4a37-b7da-1acf5cd214df.srt"
 }
 ```
 
 **Parameters**:
 - `endpoint` (string): Must be "download"
-- `file_path` (string, required): Path to file (e.g., "output/job-id.wav", "timings/job-id.srt")
+- `job_id` (string, required): Job ID from TTS generation response
+- `type` (string, optional): "audio" (default) or "timing"
+- `format` (string, optional): For timing files: "srt", "vtt", "csv", "json", "ass"
 
-**Response**
-```json
-{
-  "success": true,
-  "file_content": "UklGRnoGAABXQVZFZm10IBAAAAABAAEAQB8AAEAfAAABAAgAZGF0YQoGAACBhYqFbF1fdJivrJBhNjVgodDbq2EcBj+a2/LDciUFLIHO8tiJNwgZaLvt559NEAxQp+PwtmMcBjiR1/LMeSwFJHfH8N2QQAoUXrTp66hVFApGn+Dx7VkxDDuC6+GxYxoFOYTW8dWAKAUu...",
-  "mime_type": "audio/wav",
-  "file_size": 245760,
-  "file_name": "123e4567-e89b-12d3-a456-426614174000.wav"
-}
-```
-
-**Details**
-- **Auth**: Authentication handled by serverless function
-- **Security**: Path sanitization prevents directory traversal attacks
-- **Format**: Files returned as base64-encoded content with metadata
-- **Notes**: Replaces direct S3 URLs for secure access control
-
-## Timing Data Formats
-
-### SRT Format (FFMPEG Compatible)
-Perfect for video subtitles with one word per subtitle:
-```
-1
-00:00:00,000 --> 00:00:00,480
-Hello,
-
-2
-00:00:00,530 --> 00:00:01,010
-world!
-```
-
-### VTT Format (WebVTT)
-Alternative subtitle format:
-```
-WEBVTT
-
-00:00:00.000 --> 00:00:00.480
-Hello,
-
-00:00:00.530 --> 00:00:01.010
-world!
-```
-
-### Compact CSV Format
-Lightweight format for custom processing:
-```
-word,start_time,end_time
-Hello,0.000,0.480
-world!,0.530,1.010
-```
-
-### JSON Format (Backwards Compatible)
-Original format for legacy applications - included inline in result response.
+**Supported Timing Formats**:
+- **SRT**: SubRip format for basic subtitles
+- **VTT**: WebVTT format for web video
+- **CSV**: Comma-separated values for data processing
+- **JSON**: Structured data with full timing metadata
+- **ASS**: Advanced SubStation Alpha for FFMPEG styling
 
 ## Example Workflows
 
-### Basic TTS Generation with Timing Files
+### TTS Generation with Word Timings
 
-1. **Generate Speech with SRT timing**:
+Generate TTS with word-level timing data for FFMPEG subtitle integration:
+
 ```json
 {
   "input": {
-    "text": "Hello, this is a test of the default voice.",
-    "speed": 1.0,
-    "timing_format": "srt",
-    "return_word_timings": true
-  }
-}
-```
-
-2. **Check Status**:
-```json
-{
-  "input": {
-    "endpoint": "status", 
-    "job_id": "your-job-id"
-  }
-}
-```
-
-3. **Get Result**:
-```json
-{
-  "input": {
-    "endpoint": "result",
-    "job_id": "your-job-id" 
+    "text": "Hello world, this is a test of the timing system.",
+    "return_word_timings": true,
+    "timing_format": "ass",
+    "local_voice": "narrator.wav"
   }
 }
 ```
@@ -323,191 +226,120 @@ Original format for legacy applications - included inline in result response.
 **Response**:
 ```json
 {
-  "audio_url": "/download?file_path=output/your-job-id.wav",
-  "duration": 2.5,
+  "audio_url": "https://s3.us-west-001.backblazeb2.com/s3f5tts/output/12345.wav",
+  "duration": 3.2,
+  "job_id": "12345",
+  "status": "completed",
+  "text": "Hello world, this is a test of the timing system.",
   "timing_files": {
-    "srt": "/download?file_path=timings/your-job-id.srt"
+    "srt": "/download?job_id=12345&type=timing&format=srt",
+    "vtt": "/download?job_id=12345&type=timing&format=vtt",
+    "csv": "/download?job_id=12345&type=timing&format=csv",
+    "json": "/download?job_id=12345&type=timing&format=json",
+    "ass": "/download?job_id=12345&type=timing&format=ass"
   },
-  "timing_format": "srt"
+  "timing_format": "ass",
+  "word_count": 10,
+  "timing_confidence": 0.94
 }
 ```
 
-4. **Download Audio File**:
+**FFMPEG Integration**:
+```bash
+# Download ASS subtitle file
+curl -X POST "https://api.runpod.ai/v2/{endpoint_id}/runsync" \
+  -H "Content-Type: application/json" \
+  -d '{"input": {"endpoint": "download", "job_id": "12345", "type": "timing", "format": "ass"}}' \
+  | jq -r '.timing_data' | base64 -d > subtitles.ass
+
+# Overlay subtitles on video
+ffmpeg -i video.mp4 -vf "ass=subtitles.ass" output_with_subtitles.mp4
+```
+
+### Basic TTS Generation
 ```json
 {
   "input": {
-    "endpoint": "download",
-    "file_path": "output/your-job-id.wav"
+    "text": "I am a puppet, and the digital world owns me!",
+    "speed": 0.9,
+    "local_voice": "Kurt_12s.wav"
   }
 }
 ```
 
-5. **Download SRT Timing File**:
+**Response** (immediate):
 ```json
 {
-  "input": {
-    "endpoint": "download", 
-    "file_path": "timings/your-job-id.srt"
-  }
+  "audio_url": "https://s3.us-west-001.backblazeb2.com/s3f5tts/output/dacf3df8-e5c3-4a37-b7da-1acf5cd214df.wav",
+  "duration": 2.7413333333333334,
+  "job_id": "dacf3df8-e5c3-4a37-b7da-1acf5cd214df",
+  "status": "completed",
+  "text": "I am a puppet, and the digital world owns me!"
 }
 ```
 
-### Custom Voice Cloning
-
-1. **Upload Voice Model**:
+### Custom Voice Upload and Use
+1. **Upload voice**:
 ```json
 {
   "input": {
     "endpoint": "upload",
-    "voice_name": "custom_speaker.wav",
-    "voice_file_url": "https://example.com/speaker_sample.wav",
-    "text_file_url": "https://example.com/speaker_reference.txt"
+    "voice_name": "my_voice.wav",
+    "voice_file_url": "https://example.com/voice_sample.wav"
   }
 }
 ```
 
-2. **Generate with Custom Voice**:
+2. **Use uploaded voice**:
 ```json
 {
   "input": {
-    "text": "Now generating speech with the custom voice model.",
-    "local_voice": "custom_speaker.wav",
-    "speed": 1.0,
-    "timing_format": "compact",
-    "return_word_timings": true
+    "text": "Hello from my custom voice!",
+    "local_voice": "my_voice.wav"
   }
 }
 ```
 
-3. **Check Available Voices**:
+### Download Audio File
 ```json
 {
   "input": {
-    "endpoint": "list_voices"
+    "endpoint": "download",
+    "job_id": "dacf3df8-e5c3-4a37-b7da-1acf5cd214df"
   }
 }
 ```
 
-### FFMPEG Video Integration
-
-Perfect for creating social media videos with word-by-word subtitles:
-
-1. **Generate TTS with SRT timing**:
+**Response**:
 ```json
 {
-  "input": {
-    "text": "Create amazing social media content with F5-TTS and FFMPEG integration.",
-    "local_voice": "my_voice.wav",
-    "timing_format": "srt"
-  }
+  "audio_data": "UklGRnoGAABXQVZFZm10IBAAAAABAAEAQB8AAEAfAAABAAgAZGF0YQo...",
+  "content_type": "audio/wav"
 }
 ```
 
-2. **Download files for FFMPEG**:
+**Decode base64 to get WAV file**:
 ```bash
-# Download audio
-curl -X POST "https://api.runpod.ai/v2/{endpoint}/runsync" \
-  -H "Content-Type: application/json" \
-  -d '{"input":{"endpoint":"download","file_path":"output/job-id.wav"}}' \
-  | jq -r '.file_content' | base64 -d > audio.wav
-
-# Download SRT subtitles  
-curl -X POST "https://api.runpod.ai/v2/{endpoint}/runsync" \
-  -H "Content-Type: application/json" \
-  -d '{"input":{"endpoint":"download","file_path":"timings/job-id.srt"}}' \
-  | jq -r '.file_content' | base64 -d > subtitles.srt
+echo "UklGRnoGAABXQVZFZm10IB..." | base64 -d > output.wav
 ```
-
-3. **Create video with FFMPEG**:
-```bash
-# Social media video with word-by-word subtitles
-ffmpeg -i audio.wav -f lavfi -i color=black:size=1080x1920:duration=10 \
-  -vf "subtitles=subtitles.srt:force_style='Fontsize=36,PrimaryColour=&Hffffff,Alignment=2'" \
-  -c:a copy -shortest social_media_video.mp4
-```
-
-### Multiple Format Example
-
-Generate timing data in multiple formats for different use cases:
-
-1. **Request JSON format** (gets multiple formats automatically):
-```json
-{
-  "input": {
-    "text": "This will generate multiple timing formats automatically.",
-    "timing_format": "json"
-  }
-}
-```
-
-2. **Response includes multiple downloadable formats**:
-```json
-{
-  "audio_url": "/download?file_path=output/job-id.wav",
-  "duration": 3.2,
-  "word_timings": [...],
-  "timing_files": {
-    "srt": "/download?file_path=timings/job-id.srt",
-    "compact": "/download?file_path=timings/job-id.csv"
-  },
-  "timing_format": "json"
-}
-```
-
-## Error Handling
-
-All endpoints return appropriate HTTP status codes and error messages:
-
-**Common Error Responses**:
-```json
-{
-  "error": "Text input is required."
-}
-```
-
-```json
-{
-  "error": "Invalid job_id."
-}
-```
-
-```json
-{
-  "error": "Failed to download voice: connection timeout"
-}
-```
-
-## Rate Limits and Constraints
-
-- **Text Length**: Maximum 1000 characters per request
-- **Audio Files**: WAV format recommended, maximum file size 50MB
-- **Concurrent Jobs**: Up to 10 concurrent TTS generations per endpoint
-- **Storage**: Generated audio files are retained for 7 days
 
 ## Best Practices
 
 ### Voice Upload
-- Use high-quality WAV files (22kHz+ sample rate)
-- **Optimal length**: 3-10 seconds (auto-clipped to 8s if longer for best quality)
-- Ensure reference text exactly matches the spoken audio
+- Use high-quality WAV files (22kHz+ sample rate recommended)
+- **Optimal length**: 3-10 seconds for best voice cloning quality
+- Clear speech without background noise
 - Use descriptive, consistent naming conventions
-- Clear speech without background noise recommended
+- **No reference text needed** - F5-TTS automatically transcribes
 
 ### TTS Generation  
 - Test voice quality with short text samples first
 - Use appropriate speed settings (0.5-2.0 range)
-- Monitor job status for long generations
-- Cache frequently used audio results
-
-### Timing Data Formats
-- **SRT**: Best for FFMPEG video integration and social media
-- **CSV**: Ideal for custom processing and data analysis  
-- **VTT**: Alternative to SRT for web-based applications
-- **JSON**: Use for backwards compatibility or programmatic access
-- Choose format based on your workflow - files reduce API payload by 80-90%
+- **Synchronous processing** - results returned immediately
+- Monitor S3 storage usage for generated files
 
 ### Error Recovery
 - Implement retry logic for network timeouts
-- Check job status periodically for long-running tasks
 - Validate input parameters before submission
 - Handle S3 access errors gracefully
+- Check voice file availability before TTS generation

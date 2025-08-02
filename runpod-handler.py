@@ -24,6 +24,8 @@ import requests
 from typing import Optional
 from s3_utils import upload_to_s3, download_file_from_s3_to_memory
 import base64
+import json
+from google.cloud import speech
 
 # =============================================================================
 # GLOBAL MODEL LOADING - Happens ONCE during container initialization
@@ -226,6 +228,202 @@ def generate_tts_audio(text: str, voice_path: Optional[str] = None, speed: float
         
         return None, 0, error_msg
 
+def extract_word_timings(audio_file_path: str, text: str) -> Optional[dict]:
+    """
+    Extract word-level timings using Google Cloud Speech-to-Text.
+    Returns timing data with word-level timestamps or None if failed.
+    """
+    try:
+        print("🎙️ Extracting word timings using Google Speech API...")
+        
+        # Initialize Google Speech client
+        client = speech.SpeechClient()
+        
+        # Read the audio file
+        with open(audio_file_path, 'rb') as audio_file:
+            content = audio_file.read()
+            
+        # Configure the audio settings
+        audio = speech.RecognitionAudio(content=content)
+        config = speech.RecognitionConfig(
+            encoding=speech.RecognitionConfig.AudioEncoding.LINEAR16,
+            sample_rate_hertz=24000,  # F5-TTS output sample rate
+            language_code="en-US",
+            enable_word_time_offsets=True,  # Critical for word-level timing
+            enable_automatic_punctuation=True,
+            model="latest_long",  # Best model for accuracy
+        )
+        
+        # Perform the speech recognition
+        print("🔍 Analyzing audio for word timings...")
+        response = client.recognize(config=config, audio=audio)
+        
+        if not response.results:
+            print("⚠️ No speech recognition results returned")
+            return None
+            
+        # Extract word-level timing data
+        words = []
+        for result in response.results:
+            alternative = result.alternatives[0]
+            
+            for word_info in alternative.words:
+                word = {
+                    'word': word_info.word,
+                    'start_time': word_info.start_time.seconds + word_info.start_time.nanos * 1e-9,
+                    'end_time': word_info.end_time.seconds + word_info.end_time.nanos * 1e-9,
+                    'confidence': alternative.confidence
+                }
+                words.append(word)
+        
+        timing_data = {
+            'words': words,
+            'full_text': ' '.join([w['word'] for w in words]),
+            'total_duration': words[-1]['end_time'] if words else 0,
+            'confidence': response.results[0].alternatives[0].confidence if response.results else 0
+        }
+        
+        print(f"✅ Extracted {len(words)} word timings (duration: {timing_data['total_duration']:.2f}s)")
+        return timing_data
+        
+    except Exception as e:
+        print(f"❌ Failed to extract word timings: {e}")
+        import traceback
+        traceback.print_exc()
+        return None
+
+def generate_timing_formats(timing_data: dict, job_id: str) -> dict:
+    """
+    Generate multiple timing file formats from timing data.
+    Returns dict with format_name -> file_content mappings.
+    """
+    try:
+        words = timing_data['words']
+        formats = {}
+        
+        # SRT Format (SubRip)
+        srt_content = ""
+        for i, word in enumerate(words, 1):
+            start_time = format_srt_time(word['start_time'])
+            end_time = format_srt_time(word['end_time'])
+            srt_content += f"{i}\n{start_time} --> {end_time}\n{word['word']}\n\n"
+        formats['srt'] = srt_content
+        
+        # VTT Format (WebVTT)
+        vtt_content = "WEBVTT\n\n"
+        for word in words:
+            start_time = format_vtt_time(word['start_time'])
+            end_time = format_vtt_time(word['end_time'])
+            vtt_content += f"{start_time} --> {end_time}\n{word['word']}\n\n"
+        formats['vtt'] = vtt_content
+        
+        # CSV Format
+        csv_content = "word,start_time,end_time,confidence\n"
+        for word in words:
+            csv_content += f"{word['word']},{word['start_time']:.3f},{word['end_time']:.3f},{word['confidence']:.3f}\n"
+        formats['csv'] = csv_content
+        
+        # JSON Format
+        json_content = json.dumps({
+            'job_id': job_id,
+            'timing_data': timing_data,
+            'generated_at': str(uuid.uuid4())
+        }, indent=2)
+        formats['json'] = json_content
+        
+        # ASS Format (Advanced SubStation Alpha) - Better for FFMPEG
+        ass_content = generate_ass_format(words)
+        formats['ass'] = ass_content
+        
+        print(f"✅ Generated {len(formats)} timing formats: {list(formats.keys())}")
+        return formats
+        
+    except Exception as e:
+        print(f"❌ Failed to generate timing formats: {e}")
+        return {}
+
+def format_srt_time(seconds: float) -> str:
+    """Format seconds as SRT timestamp (HH:MM:SS,mmm)."""
+    hours = int(seconds // 3600)
+    minutes = int((seconds % 3600) // 60)
+    secs = int(seconds % 60)
+    millisecs = int((seconds % 1) * 1000)
+    return f"{hours:02d}:{minutes:02d}:{secs:02d},{millisecs:03d}"
+
+def format_vtt_time(seconds: float) -> str:
+    """Format seconds as VTT timestamp (HH:MM:SS.mmm)."""
+    hours = int(seconds // 3600)
+    minutes = int((seconds % 3600) // 60)
+    secs = int(seconds % 60)
+    millisecs = int((seconds % 1) * 1000)
+    return f"{hours:02d}:{minutes:02d}:{secs:02d}.{millisecs:03d}"
+
+def generate_ass_format(words: list) -> str:
+    """Generate ASS format for advanced FFMPEG subtitle integration."""
+    ass_header = """[Script Info]
+Title: F5-TTS Generated Subtitles
+ScriptType: v4.00+
+
+[V4+ Styles]
+Format: Name, Fontname, Fontsize, PrimaryColour, SecondaryColour, OutlineColour, BackColour, Bold, Italic, Underline, StrikeOut, ScaleX, ScaleY, Spacing, Angle, BorderStyle, Outline, Shadow, Alignment, MarginL, MarginR, MarginV, Encoding
+Style: Default,Arial,20,&H00FFFFFF,&H00000000,&H00000000,&H00000000,0,0,0,0,100,100,0,0,1,2,0,2,10,10,10,1
+
+[Events]
+Format: Layer, Start, End, Style, Name, MarginL, MarginR, MarginV, Effect, Text
+"""
+    
+    events = ""
+    for word in words:
+        start_time = format_ass_time(word['start_time'])
+        end_time = format_ass_time(word['end_time'])
+        events += f"Dialogue: 0,{start_time},{end_time},Default,,0,0,0,,{word['word']}\n"
+    
+    return ass_header + events
+
+def format_ass_time(seconds: float) -> str:
+    """Format seconds as ASS timestamp (H:MM:SS.mm)."""
+    hours = int(seconds // 3600)
+    minutes = int((seconds % 3600) // 60)
+    secs = int(seconds % 60)
+    centisecs = int((seconds % 1) * 100)
+    return f"{hours}:{minutes:02d}:{secs:02d}.{centisecs:02d}"
+
+def upload_timing_files(timing_formats: dict, job_id: str) -> dict:
+    """
+    Upload timing files to S3 and return download URLs.
+    Returns dict with format_name -> download_url mappings.
+    """
+    try:
+        timing_urls = {}
+        
+        for format_name, content in timing_formats.items():
+            # Create temporary file
+            temp_file = tempfile.NamedTemporaryFile(mode='w', delete=False, suffix=f'.{format_name}')
+            temp_file.write(content)
+            temp_file.close()
+            
+            try:
+                # Upload to S3
+                s3_key = f"timings/{job_id}.{format_name}"
+                upload_url = upload_to_s3(temp_file.name, s3_key)
+                
+                if upload_url:
+                    timing_urls[format_name] = f"/download?job_id={job_id}&type=timing&format={format_name}"
+                    print(f"✅ Uploaded {format_name} timing file: {s3_key}")
+                else:
+                    print(f"❌ Failed to upload {format_name} timing file")
+                    
+            finally:
+                # Clean up temp file
+                if os.path.exists(temp_file.name):
+                    os.unlink(temp_file.name)
+        
+        return timing_urls
+        
+    except Exception as e:
+        print(f"❌ Failed to upload timing files: {e}")
+        return {}
+
 # =============================================================================
 # RUNPOD SERVERLESS HANDLER - Synchronous Processing
 # =============================================================================
@@ -248,22 +446,54 @@ def handler(job):
         # =================================================================
         if endpoint == "download":
             job_id = job_input.get("job_id")
+            file_type = job_input.get("type", "audio")  # Default to audio
+            file_format = job_input.get("format", "wav")  # Default format
+            
             if not job_id:
                 return {"error": "job_id is required for download"}
 
-            output_key = f"output/{job_id}.wav"
-            
             try:
-                audio_data = download_file_from_s3_to_memory(output_key)
-                if audio_data:
-                    return {
-                        "audio_data": base64.b64encode(audio_data).decode('utf-8'),
-                        "content_type": "audio/wav"
-                    }
+                if file_type == "timing":
+                    # Download timing file
+                    timing_key = f"timings/{job_id}.{file_format}"
+                    timing_data = download_file_from_s3_to_memory(timing_key)
+                    
+                    if timing_data:
+                        # Determine content type based on format
+                        content_types = {
+                            'srt': 'text/plain',
+                            'vtt': 'text/vtt',
+                            'csv': 'text/csv',
+                            'json': 'application/json',
+                            'ass': 'text/plain'
+                        }
+                        content_type = content_types.get(file_format, 'text/plain')
+                        
+                        return {
+                            "timing_data": base64.b64encode(timing_data).decode('utf-8'),
+                            "content_type": content_type,
+                            "format": file_format,
+                            "filename": f"{job_id}.{file_format}"
+                        }
+                    else:
+                        return {"error": f"Timing file not found for job_id: {job_id}, format: {file_format}"}
+                        
                 else:
-                    return {"error": f"Audio file not found for job_id: {job_id}"}
+                    # Download audio file (default behavior)
+                    output_key = f"output/{job_id}.wav"
+                    audio_data = download_file_from_s3_to_memory(output_key)
+                    
+                    if audio_data:
+                        return {
+                            "audio_data": base64.b64encode(audio_data).decode('utf-8'),
+                            "content_type": "audio/wav",
+                            "filename": f"{job_id}.wav"
+                        }
+                    else:
+                        return {"error": f"Audio file not found for job_id: {job_id}"}
+                        
             except Exception as e:
-                return {"error": f"Failed to download audio file: {str(e)}"}
+                return {"error": f"Failed to download file: {str(e)}"}
 
         # =================================================================
         # VOICE UPLOAD ENDPOINT
@@ -347,6 +577,8 @@ def handler(job):
             text = job_input.get('text')
             speed = job_input.get('speed', 1.0)
             local_voice = job_input.get('local_voice')
+            return_word_timings = job_input.get('return_word_timings', False)
+            timing_format = job_input.get('timing_format', 'srt')  # Default to SRT
             
             if not text:
                 return {"error": "Text input is required"}
@@ -379,18 +611,52 @@ def handler(job):
                 if not audio_url:
                     return {"error": "Failed to upload generated audio to S3"}
                 
+                # Process timing data if requested
+                timing_files = {}
+                if return_word_timings:
+                    print(f"🎯 Processing word timings (format: {timing_format})...")
+                    
+                    # Extract word timings using Google Speech API
+                    timing_data = extract_word_timings(output_file, text)
+                    
+                    if timing_data:
+                        # Generate timing formats
+                        timing_formats = generate_timing_formats(timing_data, job_id)
+                        
+                        if timing_formats:
+                            # Upload timing files to S3 and get download URLs
+                            timing_files = upload_timing_files(timing_formats, job_id)
+                            
+                            if timing_files:
+                                print(f"✅ Generated timing files: {list(timing_files.keys())}")
+                            else:
+                                print("⚠️ Failed to upload timing files to S3")
+                        else:
+                            print("⚠️ Failed to generate timing file formats")
+                    else:
+                        print("⚠️ Failed to extract word timings from audio")
+                
                 # Clean up local output file
                 if os.path.exists(output_file):
                     os.unlink(output_file)
                 
-                # Return successful result immediately
-                return {
+                # Build response with timing data if available
+                response = {
                     "audio_url": audio_url,
                     "duration": duration,
                     "text": text,
                     "status": "completed",
                     "job_id": job_id
                 }
+                
+                # Add timing files if they were generated
+                if timing_files:
+                    response["timing_files"] = timing_files
+                    response["timing_format"] = timing_format
+                    response["word_count"] = len(timing_data.get('words', []))
+                    response["timing_confidence"] = timing_data.get('confidence', 0)
+                
+                return response
                 
             except Exception as e:
                 # Clean up on error
