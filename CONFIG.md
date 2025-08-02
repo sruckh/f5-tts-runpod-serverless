@@ -32,6 +32,19 @@ ENABLE_S3_MODEL_CACHE=true                    # Enable S3 model caching (default
 AWS_ENDPOINT_URL=https://s3.us-west-001.backblazeb2.com  # Custom S3 endpoint URL
 ```
 
+### Google Cloud Speech-to-Text API (Word Timing)
+```bash
+GOOGLE_APPLICATION_CREDENTIALS=/path/to/service-account.json  # Google Cloud service account JSON
+GOOGLE_CLOUD_PROJECT=your-project-id                         # Google Cloud project ID (optional)
+```
+**Purpose**: Required for word-level timing generation when `return_word_timings: true`
+**Cost**: ~$0.012 per request when timing is enabled
+**Features**: 
+- Nanosecond-precision word timestamps
+- Confidence scoring for timing accuracy
+- Automatic punctuation and formatting
+- Multi-language support with enterprise-grade reliability
+
 ### Optional Configuration  
 ```bash
 AWS_REGION=us-east-1                          # AWS region (default: us-east-1)
@@ -113,11 +126,31 @@ CONTENT_TYPE = "audio/wav"                         # Audio file MIME type
 }
 ```
 
+### Google Cloud IAM Permissions Required <!-- #google-cloud-permissions -->
+```json
+{
+  "name": "F5-TTS Speech-to-Text Role",
+  "includedPermissions": [
+    "speech.operations.get",
+    "speech.speech.recognize",
+    "speech.speech.longrunningrecognize"
+  ]
+}
+```
+
+**Service Account Setup**:
+1. Create Google Cloud project or use existing
+2. Enable Cloud Speech-to-Text API
+3. Create service account with Speech-to-Text permissions
+4. Download service account JSON key file
+5. Set `GOOGLE_APPLICATION_CREDENTIALS` environment variable
+
 ### Container Security <!-- #container-security -->
 - **Base Image**: Official F5-TTS container (maintained by SWivid team)
-- **Dependencies**: Minimal additional packages (`runpod`, `boto3`, `requests`)
-- **Network**: Outbound HTTPS for S3, no inbound requirements
+- **Dependencies**: Minimal additional packages (`runpod`, `boto3`, `requests`, `google-cloud-speech`)
+- **Network**: Outbound HTTPS for S3 and Google Cloud APIs, no inbound requirements
 - **GPU Access**: CUDA runtime access required
+- **API Keys**: Google Cloud service account JSON stored securely in environment
 
 ## Common Configuration Patterns
 
@@ -128,6 +161,10 @@ S3_BUCKET=test-bucket
 AWS_ACCESS_KEY_ID=minioadmin
 AWS_SECRET_ACCESS_KEY=minioadmin
 AWS_REGION=us-east-1
+
+# Google Cloud for timing (development project)
+GOOGLE_APPLICATION_CREDENTIALS=/app/service-account-dev.json
+GOOGLE_CLOUD_PROJECT=f5tts-dev-project
 ```
 
 ### Production Environment <!-- #prod-config -->
@@ -136,6 +173,10 @@ AWS_REGION=us-east-1
 S3_BUCKET=f5tts-prod-storage
 AWS_REGION=us-west-2
 PYTORCH_CUDA_ALLOC_CONF=max_split_size_mb:1024  # Larger allocation for production
+
+# Google Cloud for timing (production project)
+GOOGLE_APPLICATION_CREDENTIALS=/app/service-account-prod.json
+GOOGLE_CLOUD_PROJECT=f5tts-production
 ```
 
 ### High-Volume Environment <!-- #high-volume-config -->
@@ -144,6 +185,10 @@ PYTORCH_CUDA_ALLOC_CONF=max_split_size_mb:1024  # Larger allocation for producti
 S3_BUCKET=f5tts-enterprise
 AWS_REGION=us-east-1                           # Same region as RunPod for lower latency
 PYTORCH_CUDA_ALLOC_CONF=max_split_size_mb:2048 # Maximum memory allocation
+
+# Google Cloud for timing (enterprise project with quotas)
+GOOGLE_APPLICATION_CREDENTIALS=/app/service-account-enterprise.json
+GOOGLE_CLOUD_PROJECT=f5tts-enterprise
 ```
 
 ## Configuration Validation
@@ -154,6 +199,7 @@ The application validates configuration on startup:
 1. **S3 Connection**: `s3_utils.py:12-22` - Tests S3 client initialization
 2. **Model Loading**: `runpod-handler.py:37-65` - Validates F5-TTS model access  
 3. **GPU Detection**: `runpod-handler.py:35` - Confirms CUDA availability
+4. **Google Cloud Speech API**: `runpod-handler.py:231-293` - Validates service account credentials and API access
 
 ### Runtime Validation <!-- #runtime-validation -->
 ```python
@@ -162,6 +208,7 @@ def validate_request(job_input):
     # Text validation: runpod-handler.py:167-168
     # Voice file validation: runpod-handler.py:97-98  
     # S3 upload validation: s3_utils.py:46-48
+    # Google Speech API validation: runpod-handler.py:231-293
 ```
 
 ## Troubleshooting Configuration
@@ -178,10 +225,18 @@ def validate_request(job_input):
 - Verify HuggingFace cache directory is writable
 - Monitor memory usage during model loading
 
+**Google Cloud Speech API Failed**
+- Verify `GOOGLE_APPLICATION_CREDENTIALS` points to valid service account JSON
+- Check Google Cloud project has Speech-to-Text API enabled
+- Confirm service account has required IAM permissions
+- Validate Google Cloud project billing is enabled
+- Monitor API quotas and usage limits in Google Cloud Console
+
 **Performance Issues**
 - Adjust `PYTORCH_CUDA_ALLOC_CONF` based on available GPU memory
 - Monitor S3 transfer speeds (consider bucket region)
 - Check RunPod worker scaling configuration
+- Monitor Google Speech API latency and quotas for timing requests
 
 ## Keywords <!-- #keywords -->
-Environment variables, configuration, S3 setup, AWS credentials, RunPod deployment, GPU settings, model caching, performance tuning, security configuration, F5-TTS settings
+Environment variables, configuration, S3 setup, AWS credentials, RunPod deployment, GPU settings, model caching, performance tuning, security configuration, F5-TTS settings, Google Cloud Speech-to-Text, word timing, subtitle generation, service account, IAM permissions, speech recognition, timing accuracy, FFMPEG integration

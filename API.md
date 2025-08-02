@@ -16,7 +16,7 @@ The F5-TTS API is a **synchronous** serverless function that supports:
 - **Word-Level Timing**: Generate precise timing data for subtitles and FFMPEG integration
 - **Voice Upload**: Upload custom voice models via URL
 - **Voice Management**: List available uploaded voices
-- **File Download**: Download generated audio files and timing data as base64 data
+- **File Download**: Download generated audio files and timing data via direct S3 URLs
 
 **Important**: This is a synchronous API - no job queuing, no status checking, results returned immediately.
 
@@ -68,11 +68,20 @@ Generate text-to-speech audio using uploaded voice models. Returns results immed
 ```
 
 **Timing Features**:
-- ✅ **Word-level timing data** - Generated with Google Cloud Speech-to-Text
+- ✅ **Word-level timing data** - Generated with Google Cloud Speech-to-Text API
 - ✅ **Multiple formats** - SRT, VTT, CSV, JSON, ASS (optimized for FFMPEG)
 - ✅ **FFMPEG integration** - ASS format provides advanced subtitle styling
 - ✅ **Social media ready** - Perfect for video content with word-by-word subtitles
+- ✅ **Nanosecond precision** - Enterprise-grade timing accuracy with confidence scoring
+- ✅ **Automatic punctuation** - Enhanced readability in subtitle formats
 - 💰 **Cost**: ~$0.012 per request when `return_word_timings: true`
+
+**Google Speech API Integration**:
+- **Model**: `latest_long` model optimized for accuracy
+- **Sample Rate**: Automatically configured for 24kHz F5-TTS audio compatibility
+- **Features**: Automatic punctuation, confidence scoring, word-level timestamps
+- **Processing Time**: Additional 2-4 seconds for timing extraction
+- **Accuracy**: Enterprise-grade timing precision with confidence scores typically >0.90
 
 ### 2. Upload Voice Model
 
@@ -146,7 +155,7 @@ Retrieve a list of all uploaded voice models.
 
 ### 4. Download Files (Audio & Timing)
 
-Download generated audio files and timing data as base64-encoded data.
+Download generated audio files and timing data via direct S3 URLs (no base64 encoding).
 
 #### Download Audio File (Default)
 
@@ -163,9 +172,10 @@ Download generated audio files and timing data as base64-encoded data.
 **Response**
 ```json
 {
-  "audio_data": "UklGRnoGAABXQVZFZm10IBAAAAABAAEAQB8AAEAfAAABAAgAZGF0YQoGAACBhYqFbF1fdJivrJBhNjVgodDbq2EcBj+a2/LDciUFLIHO8tiJNwgZaLvt559NEAxQp+PwtmMcBjiR1/LMeSwFJHfH8N2QQAoUXrTp66hVFApGn+Dx7VkxDDuC6+GxYxoFOYTW8dWAKAUu...",
+  "audio_url": "https://s3.us-west-001.backblazeb2.com/s3f5tts/output/dacf3df8-e5c3-4a37-b7da-1acf5cd214df.wav",
   "content_type": "audio/wav",
-  "filename": "dacf3df8-e5c3-4a37-b7da-1acf5cd214df.wav"
+  "filename": "dacf3df8-e5c3-4a37-b7da-1acf5cd214df.wav",
+  "status": "ready"
 }
 ```
 
@@ -186,10 +196,11 @@ Download generated audio files and timing data as base64-encoded data.
 **Response**
 ```json
 {
-  "timing_data": "MQowMDowMDowMCwwMDAgLS0+IDAwOjAwOjAwLDI1MAphbQ0KDQoyDQowMDowMDowMCwyNTAgLS0+IDAwOjAwOjAwLDUwMA0KYQ0K...",
+  "timing_url": "https://s3.us-west-001.backblazeb2.com/s3f5tts/timings/dacf3df8-e5c3-4a37-b7da-1acf5cd214df.srt",
   "content_type": "text/plain",
   "format": "srt",
-  "filename": "dacf3df8-e5c3-4a37-b7da-1acf5cd214df.srt"
+  "filename": "dacf3df8-e5c3-4a37-b7da-1acf5cd214df.srt",
+  "status": "ready"
 }
 ```
 
@@ -246,11 +257,15 @@ Generate TTS with word-level timing data for FFMPEG subtitle integration:
 
 **FFMPEG Integration**:
 ```bash
-# Download ASS subtitle file
+# Get timing file URL from download endpoint
+timing_url=$(
 curl -X POST "https://api.runpod.ai/v2/{endpoint_id}/runsync" \
   -H "Content-Type: application/json" \
   -d '{"input": {"endpoint": "download", "job_id": "12345", "type": "timing", "format": "ass"}}' \
-  | jq -r '.timing_data' | base64 -d > subtitles.ass
+  | jq -r '.timing_url')
+
+# Download subtitle file directly from S3
+curl "$timing_url" -o subtitles.ass
 
 # Overlay subtitles on video
 ffmpeg -i video.mp4 -vf "ass=subtitles.ass" output_with_subtitles.mp4
@@ -313,14 +328,23 @@ ffmpeg -i video.mp4 -vf "ass=subtitles.ass" output_with_subtitles.mp4
 **Response**:
 ```json
 {
-  "audio_data": "UklGRnoGAABXQVZFZm10IBAAAAABAAEAQB8AAEAfAAABAAgAZGF0YQo...",
-  "content_type": "audio/wav"
+  "audio_url": "https://s3.us-west-001.backblazeb2.com/s3f5tts/output/dacf3df8-e5c3-4a37-b7da-1acf5cd214df.wav",
+  "content_type": "audio/wav",
+  "filename": "dacf3df8-e5c3-4a37-b7da-1acf5cd214df.wav",
+  "status": "ready"
 }
 ```
 
-**Decode base64 to get WAV file**:
+**Download WAV file directly from S3**:
 ```bash
-echo "UklGRnoGAABXQVZFZm10IB..." | base64 -d > output.wav
+# Get audio URL from download response
+audio_url=$(curl -X POST "https://api.runpod.ai/v2/{endpoint_id}/runsync" \
+  -H "Content-Type: application/json" \
+  -d '{"input": {"endpoint": "download", "job_id": "dacf3df8-e5c3-4a37-b7da-1acf5cd214df"}}' \
+  | jq -r '.audio_url')
+
+# Download audio file directly from S3
+curl "$audio_url" -o output.wav
 ```
 
 ## Best Practices

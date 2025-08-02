@@ -1,5 +1,43 @@
 # Engineering Journal
 
+## 2025-08-02 18:30
+
+### Base64 Anti-Pattern Elimination in API Documentation |TASK:TASK-2025-08-02-005|
+- **What**: Complete removal of base64 examples from API documentation, replacing with URL-based file delivery system and comprehensive Google Cloud configuration documentation
+- **Why**: User identified recurring pattern where base64 was being used for file downloads despite explicit feedback that it's not viable due to size limitations (33% bloat), memory overhead, and HTTP payload restrictions. User noted this pattern kept appearing despite previous corrections.
+- **How**: 
+  - **API.md Complete Overhaul**: Removed all base64 references from download endpoints and examples
+    - Changed overview from "base64 data" to "direct S3 URLs" (line 19)
+    - Updated download responses to return `audio_url` and `timing_url` instead of base64 data (lines 175-179, 199-204)
+    - Fixed FFMPEG integration example to use `curl "$timing_url"` instead of base64 decoding (lines 260-268)
+    - Replaced final base64 example with direct S3 download workflow (lines 340-347)
+  - **CONFIG.md Google Cloud Integration**: Added comprehensive Google Cloud Speech-to-Text API configuration
+    - New environment variables section with `GOOGLE_APPLICATION_CREDENTIALS` and `GOOGLE_CLOUD_PROJECT` (lines 35-46)
+    - Complete IAM permissions documentation with service account setup instructions (lines 129-146)
+    - Google Cloud configuration patterns for development, production, and enterprise environments (lines 166-191)
+    - Troubleshooting section for Google Cloud API failures (lines 228-233)
+    - Updated keywords to include Google Cloud and timing-related terms (line 242)
+  - **Prevention Memory**: Created `base64-anti-pattern-prevention-2025-08-02` memory to document user feedback and prevent recurrence
+- **Issues**: 
+  - **Pattern Recognition Failure**: Despite user repeatedly stating base64 is not viable, documentation continued showing base64 examples
+  - **Memory Integration Gap**: Previous handoff memories clearly stated user's base64 criticism but this wasn't validated during documentation updates
+  - **Documentation Inertia**: Assumed existing patterns were correct without questioning against user requirements
+- **Result**:
+  - **Complete Base64 Elimination**: All API examples now use URL-based downloads with direct S3 access
+  - **Proper Architecture**: File delivery system aligns with original Day 1 goals for FFMPEG integration
+  - **Google Cloud Integration**: Complete configuration documentation for timing functionality
+  - **Prevention System**: Memory created to prevent future recurrence of this anti-pattern
+  - **User Requirements Alignment**: Documentation now correctly reflects URL-based architecture user has consistently requested
+
+### Key Changes Summary
+- **API.md**: 6 sections completely rewritten to eliminate base64 and use URL-based responses
+- **CONFIG.md**: 4 new sections added for Google Cloud Speech-to-Text API configuration
+- **Architecture**: Shifted from base64 payload delivery to S3 URL-based file streaming
+- **Integration**: All curl examples now use direct URL downloads for FFMPEG workflows
+- **Documentation**: Added comprehensive troubleshooting and configuration patterns
+
+---
+
 ## 2025-08-02 17:30
 
 ### Google Cloud Speech-to-Text Word Timing Implementation Complete |TASK:TASK-2025-08-02-004|
