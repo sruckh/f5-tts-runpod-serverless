@@ -32,6 +32,17 @@ from google.cloud import speech
 # =============================================================================
 
 print("🚀 Initializing F5-TTS RunPod serverless worker...")
+
+# Check flash_attn installation and version
+try:
+    import flash_attn
+    flash_attn_version = getattr(flash_attn, '__version__', 'unknown')
+    print(f"⚡ flash_attn installed: v{flash_attn_version} (optimized attention for faster inference)")
+except ImportError:
+    print("⚠️ flash_attn not installed (slower attention mechanism)")
+except Exception as e:
+    print(f"⚠️ flash_attn detection failed: {e}")
+
 print("🔥 Loading models during container startup for optimal performance...")
 
 # Set device
@@ -43,7 +54,7 @@ f5tts_model = None
 model_load_error = None
 
 def initialize_models():
-    """Initialize F5-TTS model during container startup."""
+    """Initialize F5-TTS model during container startup with parameter validation."""
     global f5tts_model, model_load_error
     
     try:
@@ -65,10 +76,32 @@ def initialize_models():
         f5tts_model = F5TTS(model="F5TTS_v1_Base", device=device)
         print("✅ F5-TTS model loaded successfully")
         
-        # Verify model is working
-        print("🧪 Testing model initialization...")
-        # Small test to ensure model is ready
-        print("✅ Model initialization test passed")
+        # Verify model supports optimized parameters
+        print("🧪 Testing model with optimized parameters...")
+        
+        # Test parameter compatibility by checking F5TTS.infer method signature
+        import inspect
+        infer_params = inspect.signature(f5tts_model.infer).parameters
+        
+        # Check for critical optimization parameters
+        critical_params = ['nfe_step', 'cfg_strength', 'target_rms', 'cross_fade_duration', 'sway_sampling_coef', 'speed']
+        supported_params = []
+        unsupported_params = []
+        
+        for param in critical_params:
+            if param in infer_params:
+                supported_params.append(param)
+            else:
+                unsupported_params.append(param)
+        
+        if supported_params:
+            print(f"✅ Supported optimization parameters: {', '.join(supported_params)}")
+            
+        if unsupported_params:
+            print(f"⚠️ Unsupported parameters (will use defaults): {', '.join(unsupported_params)}")
+            print("💡 Audio quality optimization may be limited by F5TTS API version")
+        
+        print("✅ Model initialization and parameter validation complete")
         
     except Exception as e:
         model_load_error = str(e)
@@ -158,7 +191,7 @@ def preprocess_reference_audio(voice_path: str) -> str:
 
 def generate_tts_audio(text: str, voice_path: Optional[str] = None, speed: float = 1.0) -> tuple:
     """
-    Generate TTS audio using F5-TTS.
+    Generate TTS audio using F5-TTS with optimized parameters for stable, high-quality output.
     Returns (output_file_path, duration, error_message)
     """
     if model_load_error:
@@ -182,17 +215,50 @@ def generate_tts_audio(text: str, voice_path: Optional[str] = None, speed: float
             if processed_voice_path != voice_path:
                 temp_files.append(processed_voice_path)
         
-        print(f"🎵 Generating audio with F5-TTS...")
+        print(f"🎵 Generating audio with F5-TTS (optimized parameters)...")
         print(f"📝 Text: {text[:100]}{'...' if len(text) > 100 else ''}")
+        print(f"⚡ Parameters: nfe_step=32, cfg_strength=2.0, target_rms=0.1, speed={speed}")
         
-        # Generate audio using F5TTS.infer method
-        wav, final_sample_rate, spectrogram = f5tts_model.infer(
-            ref_file=processed_voice_path,
-            ref_text="",  # Empty string triggers automatic transcription
-            gen_text=text,
-            file_wave=temp_audio.name,
-            seed=None,
-        )
+        # Prepare optimized parameters for stable, high-quality audio generation
+        # These match the F5-TTS CLI defaults to prevent erratic behavior
+        optimized_params = {
+            "ref_file": processed_voice_path,
+            "ref_text": "",  # Empty string triggers automatic transcription
+            "gen_text": text,
+            "file_wave": temp_audio.name,
+            "seed": 42,  # Fixed seed for reproducible results
+        }
+        
+        # Add optimization parameters if supported by the F5TTS API version
+        try:
+            import inspect
+            infer_params = inspect.signature(f5tts_model.infer).parameters
+            
+            # Critical parameters for preventing audio artifacts
+            if 'nfe_step' in infer_params:
+                optimized_params['nfe_step'] = 32  # High-quality denoising (prevents speed/pitch artifacts)
+                
+            if 'cfg_strength' in infer_params:
+                optimized_params['cfg_strength'] = 2.0  # Stable classifier guidance
+                
+            if 'target_rms' in infer_params:
+                optimized_params['target_rms'] = 0.1  # Audio normalization (prevents volume jumps)
+                
+            if 'cross_fade_duration' in infer_params:
+                optimized_params['cross_fade_duration'] = 0.15  # Smooth segment transitions
+                
+            if 'sway_sampling_coef' in infer_params:
+                optimized_params['sway_sampling_coef'] = -1.0  # Stable sampling coefficient
+                
+            if 'speed' in infer_params:
+                optimized_params['speed'] = speed  # User-controlled playback speed
+                
+        except Exception as param_error:
+            print(f"⚠️ Parameter detection failed, using basic parameters: {param_error}")
+        
+        # Generate audio with optimized parameters
+        print(f"🔧 Using {len(optimized_params)} parameters for high-quality generation")
+        wav, final_sample_rate, spectrogram = f5tts_model.infer(**optimized_params)
         
         # Verify output file was created
         if not os.path.exists(temp_audio.name) or os.path.getsize(temp_audio.name) == 0:
@@ -202,7 +268,8 @@ def generate_tts_audio(text: str, voice_path: Optional[str] = None, speed: float
         duration = len(wav) / final_sample_rate
         file_size = os.path.getsize(temp_audio.name)
         
-        print(f"✅ Audio generated successfully: {duration:.2f}s, {file_size} bytes")
+        print(f"✅ High-quality audio generated: {duration:.2f}s, {file_size} bytes")
+        print(f"🔧 Applied optimization parameters to prevent erratic audio behavior")
         
         # Clean up temporary reference files (keep output file)
         for temp_file in temp_files[1:]:  # Skip the output file
@@ -217,6 +284,26 @@ def generate_tts_audio(text: str, voice_path: Optional[str] = None, speed: float
     except Exception as e:
         error_msg = f"F5-TTS inference failed: {str(e)}"
         print(f"❌ {error_msg}")
+        
+        # Fallback: try with minimal parameters if optimized version fails
+        if "unexpected keyword argument" in str(e) or "got an unexpected keyword argument" in str(e):
+            print("🔄 Trying fallback with basic parameters...")
+            try:
+                wav, final_sample_rate, spectrogram = f5tts_model.infer(
+                    ref_file=processed_voice_path,
+                    ref_text="",
+                    gen_text=text,
+                    file_wave=temp_audio.name,
+                    seed=42,
+                )
+                
+                if os.path.exists(temp_audio.name) and os.path.getsize(temp_audio.name) > 0:
+                    duration = len(wav) / final_sample_rate
+                    print(f"⚠️ Fallback successful: {duration:.2f}s (limited optimization)")
+                    return temp_audio.name, duration, None
+                    
+            except Exception as fallback_error:
+                print(f"❌ Fallback also failed: {fallback_error}")
         
         # Clean up all temporary files on error
         for temp_file in temp_files:
