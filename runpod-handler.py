@@ -25,7 +25,7 @@ from typing import Optional
 from s3_utils import upload_to_s3, download_file_from_s3_to_memory, upload_to_s3_with_presigned_url, generate_presigned_download_url
 import base64
 import json
-from google.cloud import speech
+# google.cloud.speech imported at runtime after installation
 
 # =============================================================================
 # GLOBAL MODEL LOADING - Happens ONCE during container initialization
@@ -33,15 +33,7 @@ from google.cloud import speech
 
 print("🚀 Initializing F5-TTS RunPod serverless worker...")
 
-# Check flash_attn installation and version
-try:
-    import flash_attn
-    flash_attn_version = getattr(flash_attn, '__version__', 'unknown')
-    print(f"⚡ flash_attn installed: v{flash_attn_version} (optimized attention for faster inference)")
-except ImportError:
-    print("⚠️ flash_attn not installed (slower attention mechanism)")
-except Exception as e:
-    print(f"⚠️ flash_attn detection failed: {e}")
+# flash_attn will be checked during runtime installation
 
 print("🔥 Loading models during container startup for optimal performance...")
 
@@ -102,6 +94,25 @@ def initialize_models():
             import subprocess
             subprocess.check_call(["pip", "install", "--no-cache-dir", "whisperx"])
             print("✅ whisperx installed successfully")
+        
+        # Import runtime dependencies after installation
+        try:
+            import flash_attn
+            flash_attn_version = getattr(flash_attn, '__version__', 'unknown')
+            print(f"⚡ flash_attn installed: v{flash_attn_version} (optimized attention for faster inference)")
+        except ImportError:
+            print("⚠️ flash_attn not installed (slower attention mechanism)")
+        except Exception as e:
+            print(f"⚠️ flash_attn detection failed: {e}")
+        
+        # Verify google-cloud-speech is available
+        try:
+            from google.cloud import speech
+            print("✅ google-cloud-speech available for timing extraction")
+        except ImportError:
+            print("⚠️ google-cloud-speech not available (timing features disabled)")
+        except Exception as e:
+            print(f"⚠️ google-cloud-speech detection failed: {e}")
         
         # Set environment variables to use the persistent volume for model caching
         model_cache_dir = "/runpod-volume/models"
@@ -396,6 +407,7 @@ def _get_google_speech_client():
                     return None
                     
                 credentials = service_account.Credentials.from_service_account_info(credentials_info)
+                from google.cloud import speech
                 client = speech.SpeechClient(credentials=credentials)
                 print(f"✅ Google Speech client initialized for project: {credentials_info['project_id']}")
                 return client
@@ -409,11 +421,13 @@ def _get_google_speech_client():
         credentials_file = os.environ.get('GOOGLE_APPLICATION_CREDENTIALS')
         if credentials_file and os.path.exists(credentials_file):
             print(f"🔧 Using service account file: {credentials_file}")
+            from google.cloud import speech
             return speech.SpeechClient()
         
         # Method 3: Default application credentials (for Google Cloud environments)
         try:
             print("🔍 Attempting to use default application credentials...")
+            from google.cloud import speech
             client = speech.SpeechClient()
             print("✅ Using default application credentials")
             return client
@@ -451,6 +465,7 @@ def extract_word_timings(audio_file_path: str, text: str) -> Optional[dict]:
             content = audio_file.read()
             
         # Configure the audio settings
+        from google.cloud import speech
         audio = speech.RecognitionAudio(content=content)
         config = speech.RecognitionConfig(
             encoding=speech.RecognitionConfig.AudioEncoding.LINEAR16,
