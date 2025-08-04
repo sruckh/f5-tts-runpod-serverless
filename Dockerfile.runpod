@@ -14,35 +14,24 @@ FROM ghcr.io/swivid/f5-tts:main
 WORKDIR /app
 
 # =============================================================================
-# BUILD-TIME OPTIMIZATION: Install flash_attn
+# RUNTIME INSTALLATION SETUP
 # =============================================================================
 
-# Install flash_attn with specific wheel for Python 3.11 + CUDA 12.x compatibility
-# This prevents runtime installation and disk space issues
-RUN echo "⚡ Installing flash_attn during build time for optimal performance..." && \
-    pip install --no-cache-dir \
-    https://github.com/Dao-AILab/flash-attention/releases/download/v2.8.0.post2/flash_attn-2.8.0.post2+cu12torch2.4cxx11abiFALSE-cp311-cp311-linux_x86_64.whl
-
-# Verify flash_attn installation
-RUN python -c "import flash_attn; print('✅ flash_attn installed successfully')" || \
-    (echo "❌ flash_attn installation failed" && exit 1)
-
-# Models will be loaded from /runpod-volume at runtime, not during build.
+# Heavy modules will be installed at runtime to keep base container minimal
+# This includes: flash_attn, whisperx, and model downloads
 
 # =============================================================================
 # SERVERLESS DEPENDENCIES
 # =============================================================================
 
-# Install minimal additional dependencies for RunPod serverless
+# Install only essential lightweight dependencies for base container
 RUN pip install --no-cache-dir \
     runpod \
     boto3 \
     requests \
     librosa \
     soundfile \
-    "transformers>=4.48.1" \
-    google-cloud-speech \
-    python-ass
+    ass
 
 # =============================================================================
 # APPLICATION CODE

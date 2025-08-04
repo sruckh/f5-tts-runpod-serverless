@@ -45,6 +45,7 @@ Generate text-to-speech audio using uploaded voice models. Returns results immed
 - `local_voice` (string, optional): Voice filename from S3 voices/ directory
 - `return_word_timings` (boolean, optional): Generate word-level timing data (default: false)
 - `timing_format` (string, optional): Timing format preference: "srt", "vtt", "csv", "json", "ass" (default: "srt")
+- `timing_method` (string, optional): Timing extraction method: "whisperx" (default), "google"
 
 **Response** (Immediate - Synchronous)
 ```json
@@ -62,21 +63,30 @@ Generate text-to-speech audio using uploaded voice models. Returns results immed
     "ass": "https://s3.us-west-001.backblazeb2.com/s3f5tts/timings/dacf3df8-e5c3-4a37-b7da-1acf5cd214df.ass?X-Amz-Algorithm=AWS4-HMAC-SHA256&X-Amz-Credential=..."
   },
   "timing_format": "srt",
+  "timing_method": "whisperx",
   "word_count": 11,
   "timing_confidence": 0.95
 }
 ```
 
 **Timing Features**:
-- ✅ **Word-level timing data** - Generated with Google Cloud Speech-to-Text API
+- ✅ **Word-level timing data** - Generated with WhisperX (primary) or Google Cloud Speech-to-Text API (fallback)
 - ✅ **Multiple formats** - SRT, VTT, CSV, JSON, ASS (optimized for FFMPEG)
 - ✅ **FFMPEG integration** - ASS format provides advanced subtitle styling
 - ✅ **Social media ready** - Perfect for video content with word-by-word subtitles
 - ✅ **Nanosecond precision** - Enterprise-grade timing accuracy with confidence scoring
 - ✅ **Automatic punctuation** - Enhanced readability in subtitle formats
-- 💰 **Cost**: ~$0.012 per request when `return_word_timings: true`
+- ✅ **Multi-language support** - Automatic language detection with WhisperX
+- 💰 **Cost**: Free with WhisperX, ~$0.012 per request with Google Speech API
 
-**Google Speech API Integration**:
+**WhisperX Integration** (Primary Method):
+- **Model**: large-v2 with wav2vec2 forced alignment
+- **Features**: Precise word-level timestamps, multi-language support, automatic language detection
+- **Processing Time**: 3-5 seconds for timing extraction (includes model loading)
+- **Accuracy**: Superior word-level timing precision through forced alignment
+- **Languages**: English, French, German, Spanish, Italian, Japanese, Chinese, Dutch
+
+**Google Speech API Integration** (Fallback Method):
 - **Model**: `latest_long` model optimized for accuracy
 - **Sample Rate**: Automatically configured for 24kHz F5-TTS audio compatibility
 - **Features**: Automatic punctuation, confidence scoring, word-level timestamps
@@ -229,6 +239,7 @@ Generate TTS with word-level timing data for FFMPEG subtitle integration:
     "text": "Hello world, this is a test of the timing system.",
     "return_word_timings": true,
     "timing_format": "ass",
+    "timing_method": "whisperx",
     "local_voice": "narrator.wav"
   }
 }
@@ -250,6 +261,7 @@ Generate TTS with word-level timing data for FFMPEG subtitle integration:
     "ass": "https://s3.us-west-001.backblazeb2.com/s3f5tts/timings/12345.ass?X-Amz-Algorithm=AWS4-HMAC-SHA256&X-Amz-Credential=..."
   },
   "timing_format": "ass",
+  "timing_method": "whisperx",
   "word_count": 10,
   "timing_confidence": 0.94
 }

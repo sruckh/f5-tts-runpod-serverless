@@ -54,10 +54,55 @@ f5tts_model = None
 model_load_error = None
 
 def initialize_models():
-    """Initialize F5-TTS model during container startup with parameter validation."""
+    """Initialize F5-TTS model with runtime installation of heavy dependencies."""
     global f5tts_model, model_load_error
     
     try:
+        print("🔄 Installing heavy dependencies at runtime...")
+        
+        # Install flash_attn at runtime
+        try:
+            import flash_attn
+            print("✅ flash_attn already available")
+        except ImportError:
+            print("📦 Installing flash_attn at runtime...")
+            import subprocess
+            subprocess.check_call([
+                "pip", "install", "--no-cache-dir",
+                "https://github.com/Dao-AILab/flash-attention/releases/download/v2.8.0.post2/flash_attn-2.8.0.post2+cu12torch2.4cxx11abiFALSE-cp311-cp311-linux_x86_64.whl"
+            ])
+            print("✅ flash_attn installed successfully")
+        
+        # Install transformers at runtime
+        try:
+            import transformers
+            print("✅ transformers already available")
+        except ImportError:
+            print("📦 Installing transformers at runtime...")
+            import subprocess
+            subprocess.check_call(["pip", "install", "--no-cache-dir", "transformers>=4.48.1"])
+            print("✅ transformers installed successfully")
+        
+        # Install google-cloud-speech at runtime
+        try:
+            import google.cloud.speech
+            print("✅ google-cloud-speech already available")
+        except ImportError:
+            print("📦 Installing google-cloud-speech at runtime...")
+            import subprocess
+            subprocess.check_call(["pip", "install", "--no-cache-dir", "google-cloud-speech"])
+            print("✅ google-cloud-speech installed successfully")
+        
+        # Install whisperx at runtime
+        try:
+            import whisperx
+            print("✅ whisperx already available")
+        except ImportError:
+            print("📦 Installing whisperx at runtime...")
+            import subprocess
+            subprocess.check_call(["pip", "install", "--no-cache-dir", "whisperx"])
+            print("✅ whisperx installed successfully")
+        
         # Set environment variables to use the persistent volume for model caching
         model_cache_dir = "/runpod-volume/models"
         os.environ['HF_HOME'] = model_cache_dir
@@ -498,6 +543,78 @@ def extract_word_timings(audio_file_path: str, text: str) -> Optional[dict]:
         traceback.print_exc()
         return None
 
+def extract_word_timings_whisperx(audio_file_path: str, text: str) -> Optional[dict]:
+    """
+    Extract word-level timings using WhisperX for more accurate alignment.
+    Returns timing data with word-level timestamps or None if failed.
+    """
+    try:
+        print("🎙️ Extracting word timings using WhisperX...")
+        
+        import whisperx
+        import gc
+        import torch
+        
+        device = "cuda" if torch.cuda.is_available() else "cpu"
+        batch_size = 16
+        compute_type = "float16" if device == "cuda" else "int8"
+        
+        # 1. Load WhisperX model
+        print("📦 Loading WhisperX model...")
+        model = whisperx.load_model("large-v2", device, compute_type=compute_type)
+        
+        # 2. Load and transcribe audio
+        print("🔍 Transcribing audio with WhisperX...")
+        audio = whisperx.load_audio(audio_file_path)
+        result = model.transcribe(audio, batch_size=batch_size)
+        
+        # 3. Load alignment model and align transcript to audio
+        print("⚡ Performing forced alignment for precise word timings...")
+        model_a, metadata = whisperx.load_align_model(language_code=result["language"], device=device)
+        result = whisperx.align(result["segments"], model_a, metadata, audio, device, return_char_alignments=False)
+        
+        # 4. Clean up models to free GPU memory
+        del model
+        del model_a
+        gc.collect()
+        torch.cuda.empty_cache()
+        
+        # 5. Extract word-level timing data
+        words = []
+        for segment in result["segments"]:
+            if "words" in segment:
+                for word_info in segment["words"]:
+                    word = {
+                        'word': word_info['word'],
+                        'start_time': word_info['start'],
+                        'end_time': word_info['end'],
+                        'confidence': word_info.get('score', 1.0)  # WhisperX uses 'score' for confidence
+                    }
+                    words.append(word)
+        
+        if not words:
+            print("⚠️ No word timings extracted from WhisperX")
+            return None
+        
+        timing_data = {
+            'words': words,
+            'full_text': ' '.join([w['word'] for w in words]),
+            'total_duration': words[-1]['end_time'] if words else 0,
+            'confidence': sum(w['confidence'] for w in words) / len(words) if words else 0,
+            'language': result.get("language", "en"),
+            'method': 'whisperx'
+        }
+        
+        print(f"✅ WhisperX extracted {len(words)} word timings (duration: {timing_data['total_duration']:.2f}s)")
+        print(f"🌐 Detected language: {timing_data['language']}")
+        return timing_data
+        
+    except Exception as e:
+        print(f"❌ Failed to extract word timings with WhisperX: {e}")
+        import traceback
+        traceback.print_exc()
+        return None
+
 def generate_timing_formats(timing_data: dict, job_id: str) -> dict:
     """
     Generate multiple timing file formats from timing data.
@@ -785,6 +902,7 @@ def handler(job):
             local_voice = job_input.get('local_voice')
             return_word_timings = job_input.get('return_word_timings', False)
             timing_format = job_input.get('timing_format', 'srt')  # Default to SRT
+            timing_method = job_input.get('timing_method', 'whisperx')  # Default to WhisperX
             
             if not text:
                 return {"error": "Text input is required"}
@@ -822,10 +940,20 @@ def handler(job):
                 # Process timing data if requested
                 timing_files = {}
                 if return_word_timings:
-                    print(f"🎯 Processing word timings (format: {timing_format})...")
+                    print(f"🎯 Processing word timings (method: {timing_method}, format: {timing_format})...")
                     
-                    # Extract word timings using Google Speech API
-                    timing_data = extract_word_timings(output_file, text)
+                    # Extract word timings using selected method
+                    if timing_method.lower() == 'google':
+                        print("🔍 Using Google Speech API for timing extraction...")
+                        timing_data = extract_word_timings(output_file, text)
+                    else:  # Default to whisperx
+                        print("🎙️ Using WhisperX for timing extraction...")
+                        timing_data = extract_word_timings_whisperx(output_file, text)
+                        
+                        # Fallback to Google Speech API if WhisperX fails
+                        if not timing_data:
+                            print("🔄 WhisperX failed, trying Google Speech API fallback...")
+                            timing_data = extract_word_timings(output_file, text)
                     
                     if timing_data:
                         # Generate timing formats
@@ -861,6 +989,7 @@ def handler(job):
                 if timing_files:
                     response["timing_files"] = timing_files
                     response["timing_format"] = timing_format
+                    response["timing_method"] = timing_data.get('method', timing_method)
                     response["word_count"] = len(timing_data.get('words', []))
                     response["timing_confidence"] = timing_data.get('confidence', 0)
                 

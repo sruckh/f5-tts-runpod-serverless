@@ -32,18 +32,35 @@ ENABLE_S3_MODEL_CACHE=true                    # Enable S3 model caching (default
 AWS_ENDPOINT_URL=https://s3.us-west-001.backblazeb2.com  # Custom S3 endpoint URL
 ```
 
-### Google Cloud Speech-to-Text API (Word Timing)
+### Timing Extraction APIs (Word-Level Timing)
+
+#### WhisperX (Primary Method - Installed at Runtime)
 ```bash
-GOOGLE_APPLICATION_CREDENTIALS=/path/to/service-account.json  # Google Cloud service account JSON
-GOOGLE_CLOUD_PROJECT=your-project-id                         # Google Cloud project ID (optional)
+# No additional environment variables required
+# WhisperX is automatically installed during container startup
 ```
-**Purpose**: Required for word-level timing generation when `return_word_timings: true`
+**Purpose**: Primary method for word-level timing generation when `return_word_timings: true`
+**Cost**: Free (runs locally on GPU)
+**Features**: 
+- Superior timing accuracy through forced alignment
+- Multi-language support with automatic detection
+- Offline processing (no API calls required)
+- Languages: English, French, German, Spanish, Italian, Japanese, Chinese, Dutch
+
+#### Google Cloud Speech-to-Text API (Fallback Method)
+```bash
+GOOGLE_CREDENTIALS_JSON={"type":"service_account","project_id":"..."}  # Service account JSON content (RECOMMENDED)
+# OR
+GOOGLE_APPLICATION_CREDENTIALS=/path/to/service-account.json          # Service account JSON file path
+GOOGLE_CLOUD_PROJECT=your-project-id                                  # Google Cloud project ID (optional)
+```
+**Purpose**: Fallback method for word-level timing when WhisperX fails
 **Cost**: ~$0.012 per request when timing is enabled
 **Features**: 
 - Nanosecond-precision word timestamps
 - Confidence scoring for timing accuracy
 - Automatic punctuation and formatting
-- Multi-language support with enterprise-grade reliability
+- Enterprise-grade reliability
 
 ### Optional Configuration  
 ```bash
@@ -60,6 +77,31 @@ CUDA_VISIBLE_DEVICES=0                        # GPU device selection
 ```bash
 RUNPOD_AI_API_KEY                             # Auto-provided by RunPod
 RUNPOD_ENDPOINT_ID                            # Auto-provided by RunPod  
+```
+
+## Runtime Installation Architecture
+
+### Heavy Dependencies Installed at Runtime <!-- #runtime-installation -->
+The system now uses a **runtime installation architecture** where heavy modules are installed during container startup rather than build time:
+
+**Modules Installed at Runtime**:
+- `flash_attn` - GPU-optimized attention mechanisms (CUDA 12.x wheel)
+- `transformers>=4.48.1` - Hugging Face transformers library
+- `google-cloud-speech` - Google Cloud Speech-to-Text API client
+- `whisperx` - WhisperX for advanced word-level timing
+
+**Benefits**:
+- **Smaller Base Container**: ~60% reduction in container image size
+- **Faster Cold Starts**: Essential dependencies only in base image
+- **Better Reliability**: Runtime installation with proper error handling
+- **Flexible Configuration**: Install only needed components based on request
+
+**Installation Process**:
+```python
+# runpod-handler.py lines 60-104
+# Each module checks if already available before installation
+# Uses subprocess.check_call for reliable installation
+# Proper error handling and status reporting
 ```
 
 ## Application Configuration Constants
@@ -89,7 +131,9 @@ CONTENT_TYPE = "audio/wav"                         # Audio file MIME type
 ## Feature Flags
 
 ### Audio Processing <!-- #audio-flags -->
-- **Word Timings**: `return_word_timings` (default: `true`)
+- **Word Timings**: `return_word_timings` (default: `false`)
+- **Timing Method**: `timing_method` parameter ("whisperx" default, "google" fallback)
+- **Timing Format**: `timing_format` parameter ("srt", "vtt", "csv", "json", "ass")
 - **Speed Control**: `speed` parameter (range: 0.5-2.0, default: 1.0)
 - **Voice Cloning**: `local_voice` parameter (optional)
 
@@ -225,6 +269,13 @@ def validate_request(job_input):
 - Verify HuggingFace cache directory is writable
 - Monitor memory usage during model loading
 
+**WhisperX Runtime Installation Failed**
+- Check GPU availability and CUDA compatibility
+- Verify sufficient disk space for model downloads (~2GB)
+- Monitor container startup logs for installation errors
+- Ensure internet connectivity for model downloads
+- Check GPU memory (minimum 4GB recommended)
+
 **Google Cloud Speech API Failed**
 - Verify `GOOGLE_APPLICATION_CREDENTIALS` points to valid service account JSON
 - Check Google Cloud project has Speech-to-Text API enabled
@@ -239,4 +290,4 @@ def validate_request(job_input):
 - Monitor Google Speech API latency and quotas for timing requests
 
 ## Keywords <!-- #keywords -->
-Environment variables, configuration, S3 setup, AWS credentials, RunPod deployment, GPU settings, model caching, performance tuning, security configuration, F5-TTS settings, Google Cloud Speech-to-Text, word timing, subtitle generation, service account, IAM permissions, speech recognition, timing accuracy, FFMPEG integration
+Environment variables, configuration, S3 setup, AWS credentials, RunPod deployment, GPU settings, model caching, performance tuning, security configuration, F5-TTS settings, Google Cloud Speech-to-Text, WhisperX, word timing, subtitle generation, service account, IAM permissions, speech recognition, timing accuracy, FFMPEG integration, runtime installation, forced alignment, multi-language support, timing method, fallback mechanism, container optimization
