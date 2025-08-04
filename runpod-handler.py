@@ -46,85 +46,147 @@ f5tts_model = None
 model_load_error = None
 
 def initialize_models():
-    """Initialize F5-TTS model with runtime installation of heavy dependencies."""
+    """Initialize F5-TTS model with optimized runtime installation of heavy dependencies."""
     global f5tts_model, model_load_error
     
     try:
-        print("🔄 Installing heavy dependencies at runtime...")
+        print("🔄 Starting optimized warm import process...")
         
-        # Install flash_attn at runtime
-        try:
-            import flash_attn
-            print("✅ flash_attn already available")
-        except ImportError:
-            print("📦 Installing flash_attn at runtime...")
+        # Smart package installation system
+        def check_and_install_package(package_name, import_name=None, install_command=None, description=""):
+            """Smart package detection and installation with disk space management."""
+            import_name = import_name or package_name
+            install_command = install_command or [package_name]
+            
+            try:
+                # Try importing first
+                if '.' in import_name:
+                    # Handle nested imports like 'google.cloud.speech'
+                    module_parts = import_name.split('.')
+                    module = __import__(module_parts[0])
+                    for part in module_parts[1:]:
+                        module = getattr(module, part)
+                else:
+                    __import__(import_name)
+                print(f"✅ {package_name} already available {description}")
+                return True
+            except ImportError:
+                print(f"📦 Installing {package_name} at runtime {description}...")
+                
+                # Check available disk space before installation
+                import shutil
+                disk_usage = shutil.disk_usage("/")
+                free_space_gb = disk_usage.free / (1024**3)
+                
+                if free_space_gb < 1.0:  # Less than 1GB free
+                    print(f"⚠️ Low disk space: {free_space_gb:.2f}GB free. Cleaning up...")
+                    cleanup_disk_space()
+                    
+                    # Recheck after cleanup
+                    disk_usage = shutil.disk_usage("/")
+                    free_space_gb = disk_usage.free / (1024**3)
+                    
+                    if free_space_gb < 0.5:  # Still less than 500MB
+                        print(f"❌ Insufficient disk space: {free_space_gb:.2f}GB free. Skipping {package_name}")
+                        return False
+                
+                try:
+                    import subprocess
+                    cmd = ["pip", "install", "--no-cache-dir"] + install_command
+                    subprocess.check_call(cmd)
+                    print(f"✅ {package_name} installed successfully")
+                    return True
+                except subprocess.CalledProcessError as e:
+                    print(f"❌ Failed to install {package_name}: {e}")
+                    return False
+            except Exception as e:
+                print(f"⚠️ {package_name} detection failed: {e}")
+                return False
+        
+        def cleanup_disk_space():
+            """Clean up temporary files and caches to free disk space."""
             import subprocess
-            subprocess.check_call([
-                "pip", "install", "--no-cache-dir",
-                "https://github.com/Dao-AILab/flash-attention/releases/download/v2.8.0.post2/flash_attn-2.8.0.post2+cu12torch2.4cxx11abiFALSE-cp311-cp311-linux_x86_64.whl"
-            ])
-            print("✅ flash_attn installed successfully")
+            import os
+            
+            print("🧹 Cleaning up disk space...")
+            cleanup_commands = [
+                # Clear pip cache
+                ["pip", "cache", "purge"],
+                # Clear temporary files
+                ["find", "/tmp", "-type", "f", "-delete", "2>/dev/null", "||", "true"],
+                # Clear conda package cache
+                ["conda", "clean", "-a", "-y"],
+            ]
+            
+            for cmd in cleanup_commands:
+                try:
+                    subprocess.run(cmd, capture_output=True, check=False)
+                except:
+                    pass  # Ignore cleanup failures
+            
+            print("✅ Disk cleanup completed")
         
-        # Install transformers at runtime
-        try:
-            import transformers
-            print("✅ transformers already available")
-        except ImportError:
-            print("📦 Installing transformers at runtime...")
-            import subprocess
-            subprocess.check_call(["pip", "install", "--no-cache-dir", "transformers>=4.48.1"])
-            print("✅ transformers installed successfully")
+        # Optimized runtime installations with smart detection
         
-        # Install google-cloud-speech at runtime
-        try:
-            import google.cloud.speech
-            print("✅ google-cloud-speech already available")
-        except ImportError:
-            print("📦 Installing google-cloud-speech at runtime...")
-            import subprocess
-            subprocess.check_call(["pip", "install", "--no-cache-dir", "google-cloud-speech"])
-            print("✅ google-cloud-speech installed successfully")
+        # 1. Install transformers (lightweight, always needed)
+        transformers_success = check_and_install_package(
+            "transformers", 
+            install_command=["transformers>=4.48.1"],
+            description="(HuggingFace transformers library)"
+        )
         
-        # Install whisperx at runtime
-        try:
-            import whisperx
-            print("✅ whisperx already available")
-        except ImportError:
-            print("📦 Installing whisperx at runtime...")
-            import subprocess
-            subprocess.check_call(["pip", "install", "--no-cache-dir", "whisperx"])
-            print("✅ whisperx installed successfully")
+        # 2. Install google-cloud-speech (optional, for timing fallback)
+        gcs_success = check_and_install_package(
+            "google-cloud-speech",
+            import_name="google.cloud.speech", 
+            description="(timing extraction fallback)"
+        )
         
-        # Import runtime dependencies after installation
+        # 3. Install flash_attn (large, GPU-optimized, use platform CUDA)
+        flash_attn_success = check_and_install_package(
+            "flash_attn",
+            install_command=[
+                # Use pip instead of precompiled wheel to avoid CUDA conflicts
+                "flash-attn", "--no-build-isolation"
+            ],
+            description="(GPU-optimized attention)"
+        )
+        
+        # 4. Install whisperx (large, for word-level timing)
+        whisperx_success = check_and_install_package(
+            "whisperx",
+            description="(word-level timing extraction)"
+        )
+        
+        # Report installation status
+        print(f"📊 Package installation summary:")
+        print(f"   • transformers: {'✅' if transformers_success else '❌'}")
+        print(f"   • google-cloud-speech: {'✅' if gcs_success else '❌'}")
+        print(f"   • flash_attn: {'✅' if flash_attn_success else '❌'}")
+        print(f"   • whisperx: {'✅' if whisperx_success else '❌'}")
+        
+        # Verify critical dependencies
         try:
             import flash_attn
             flash_attn_version = getattr(flash_attn, '__version__', 'unknown')
-            print(f"⚡ flash_attn installed: v{flash_attn_version} (optimized attention for faster inference)")
+            print(f"⚡ flash_attn v{flash_attn_version} - optimized attention enabled")
         except ImportError:
-            print("⚠️ flash_attn not installed (slower attention mechanism)")
+            print("⚠️ flash_attn not available - using standard attention (slower)")
         except Exception as e:
             print(f"⚠️ flash_attn detection failed: {e}")
         
-        # Verify google-cloud-speech is available
-        try:
-            from google.cloud import speech
-            print("✅ google-cloud-speech available for timing extraction")
-        except ImportError:
-            print("⚠️ google-cloud-speech not available (timing features disabled)")
-        except Exception as e:
-            print(f"⚠️ google-cloud-speech detection failed: {e}")
-        
-        # Set environment variables to use the persistent volume for model caching
+        # Set environment variables for model caching on persistent volume
         model_cache_dir = "/runpod-volume/models"
         os.environ['HF_HOME'] = model_cache_dir
         os.environ['TRANSFORMERS_CACHE'] = model_cache_dir
         os.environ['HF_HUB_CACHE'] = os.path.join(model_cache_dir, 'hub')
         os.environ['TORCH_HOME'] = os.path.join(model_cache_dir, 'torch')
         
-        # Ensure the cache directories exist
+        # Ensure cache directories exist
         os.makedirs(os.environ['HF_HUB_CACHE'], exist_ok=True)
         os.makedirs(os.environ['TORCH_HOME'], exist_ok=True)
 
+        # Import and initialize F5-TTS
         from f5_tts.api import F5TTS
         print("📦 F5-TTS API imported successfully")
         
@@ -132,32 +194,31 @@ def initialize_models():
         f5tts_model = F5TTS(model="F5TTS_v1_Base", device=device)
         print("✅ F5-TTS model loaded successfully")
         
-        # Verify model supports optimized parameters
+        # Verify model optimization parameters
         print("🧪 Testing model with optimized parameters...")
         
-        # Test parameter compatibility by checking F5TTS.infer method signature
         import inspect
         infer_params = inspect.signature(f5tts_model.infer).parameters
         
         # Check for critical optimization parameters
         critical_params = ['nfe_step', 'cfg_strength', 'target_rms', 'cross_fade_duration', 'sway_sampling_coef', 'speed']
-        supported_params = []
-        unsupported_params = []
-        
-        for param in critical_params:
-            if param in infer_params:
-                supported_params.append(param)
-            else:
-                unsupported_params.append(param)
+        supported_params = [param for param in critical_params if param in infer_params]
+        unsupported_params = [param for param in critical_params if param not in infer_params]
         
         if supported_params:
             print(f"✅ Supported optimization parameters: {', '.join(supported_params)}")
             
         if unsupported_params:
-            print(f"⚠️ Unsupported parameters (will use defaults): {', '.join(unsupported_params)}")
+            print(f"⚠️ Unsupported parameters (using defaults): {', '.join(unsupported_params)}")
             print("💡 Audio quality optimization may be limited by F5TTS API version")
         
-        print("✅ Model initialization and parameter validation complete")
+        # Final disk space report
+        import shutil
+        disk_usage = shutil.disk_usage("/")
+        free_space_gb = disk_usage.free / (1024**3)
+        print(f"💾 Remaining disk space: {free_space_gb:.2f}GB")
+        
+        print("✅ Optimized warm import process completed successfully")
         
     except Exception as e:
         model_load_error = str(e)
