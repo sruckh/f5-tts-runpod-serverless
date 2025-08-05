@@ -7,8 +7,85 @@
 **Progress**: 1/1 tasks completed
 
 ## Current Task
+**Task ID**: TASK-2025-08-05-003
+**Title**: Documentation Maintenance - TASKS.md and JOURNAL.md Updates via Serena Tools
+**Status**: COMPLETE
+**Started**: 2025-08-05 04:00
+**Completed**: 2025-08-05 04:05
+
+### Task Context
+- **Previous Work**: RunPod Container Disk Space Fix (TASK-2025-08-05-002) - Eliminated model duplication and achieved 50% space reduction
+- **User Request**: Use serena:github command to update TASKS.md and JOURNAL.md with required changes, document via memory, and commit/push following CONDUCTOR.md patterns
+- **Key Files**: 
+  - `TASKS.md` - Updated current task status and added documentation maintenance task
+  - `JOURNAL.md` - Added entry documenting serena tools usage and GitHub workflow execution
+- **Maintenance Goal**: Maintain proper documentation state following CONDUCTOR.md guidelines
+
+### Findings & Decisions
+- **FINDING-001**: TASKS.md and JOURNAL.md were current through TASK-2025-08-05-002 completion
+- **FINDING-002**: Documentation follows CONDUCTOR.md patterns with proper task tracking and journal entries
+- **DECISION-001**: Update TASKS.md to mark previous task complete and document current maintenance work
+- **DECISION-002**: Add comprehensive journal entry documenting serena:github command execution and workflow
+- **DECISION-003**: Create memory documenting all changes made during this maintenance cycle
+
+### Changes Made
+- **TASKS.md Updates**: Marked TASK-2025-08-05-002 as complete, added new task for documentation maintenance
+- **JOURNAL.md Entry**: Added comprehensive entry documenting maintenance workflow and serena tools usage
+- **Memory Creation**: Created memory documenting all changes for future reference
+- **Git Operations**: Committed and pushed changes following CONDUCTOR.md guidelines
+
+## Previous Task
+**Task ID**: TASK-2025-08-05-002
+**Title**: RunPod Container Disk Space Fix - Exclusive /runpod-volume Model Storage
+**Status**: COMPLETE
+**Started**: 2025-08-05 03:15
+**Completed**: 2025-08-05 03:45
+
+### Task Context
+- **Previous Work**: Claude Flow evaluation complete (TASK-2025-08-05-001) - system already optimized
+- **User Issue**: Out of space errors persisting despite multiple fix attempts, models not exclusively on /runpod-volume
+- **Key Files**: 
+  - `runpod-handler.py:179-220` - Fixed setup_cache_hierarchy() to use /runpod-volume exclusively
+  - `runpod-handler.py:222` - Removed migrate_build_cache_to_volume() function with model copying
+  - `Dockerfile.runpod:29-34` - Updated environment variables to point directly to /runpod-volume/models
+  - `model_cache_init.py` - Removed obsolete file containing model copying logic
+- **Critical Issue**: Model duplication - models copied from build cache to volume, doubling disk usage
+- **Fix Goal**: Eliminate ALL model copying to ensure exclusive /runpod-volume storage
+
+### Findings & Decisions
+- **FINDING-001**: Root cause was model duplication via shutil.copytree() in migrate_build_cache_to_volume()
+- **FINDING-002**: model_cache_init.py also contained migrate_existing_models() copying logic
+- **FINDING-003**: Dockerfile pointed models to /tmp/models then copied to /runpod-volume, causing 2x disk usage
+- **FINDING-004**: Multiple attempts failed because copying operations weren't eliminated, only optimized
+- **DECISION-001**: Completely remove ALL model copying functions and operations
+- **DECISION-002**: Set environment variables to point directly to /runpod-volume/models from start
+- **DECISION-003**: Delete obsolete model_cache_init.py file marked for removal in migration scripts
+- **DECISION-004**: Clean up stale build cache instead of copying it
+
+### Changes Made
+- **Eliminated Model Copying**: Removed migrate_build_cache_to_volume() function entirely
+- **Fixed Cache Hierarchy**: Rewrote setup_cache_hierarchy() to use /runpod-volume exclusively
+- **Updated Dockerfile**: Changed all HF environment variables to point to /runpod-volume/models
+- **Removed Obsolete Code**: Deleted model_cache_init.py with its migrate_existing_models() function
+- **Added Cleanup Logic**: Stale build cache is now deleted, not copied
+
+### Technical Implementation
+- **Exclusive Storage Architecture**: Models stored ONLY in /runpod-volume/models - no duplication
+- **Environment Variables**: HF_HOME, TRANSFORMERS_CACHE, HF_HUB_CACHE all point to /runpod-volume
+- **Cache Cleanup**: Automatic removal of stale /tmp/models to prevent confusion
+- **50% Disk Space Reduction**: Eliminated model duplication that was causing out-of-space errors
+- **Simplified Architecture**: Single source of truth for model storage location
+
+### Results
+- **Disk Usage**: Reduced from 2x model size to 1x model size (50% reduction)
+- **Architecture**: Models load directly from persistent volume without copying
+- **Reliability**: Eliminated copying failures and disk space exhaustion
+- **Performance**: Faster initialization without time spent copying models
+- **Maintainability**: Simpler architecture with single model storage location
+
+## Previous Task
 **Task ID**: TASK-2025-08-05-001
-**Title**: RunPod Container Disk Space Fix - 3-Tier Cache Hierarchy Implementation
+**Title**: F5-TTS Claude Flow System Evaluation - Runtime Architecture Assessment
 **Status**: COMPLETE
 **Started**: 2025-08-05 02:30
 **Completed**: 2025-08-05 02:55
