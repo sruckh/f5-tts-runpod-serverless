@@ -45,25 +45,17 @@ ENV PYTHONDONTWRITEBYTECODE=1
 ENV HF_HUB_DISABLE_PROGRESS_BARS=1
 
 # Create startup script that sets up venv then runs handler
-RUN echo '#!/bin/bash
-\
-echo "🚀 Starting F5-TTS with Network Volume Virtual Environment"
-\
-python /app/setup_network_venv.py
-\
-if [ $? -eq 0 ]; then
-\
-    echo "✅ Virtual environment ready, starting handler..."
-\
-    /runpod-volume/venv/bin/python /app/runpod-handler.py
-\
-else
-\
-    echo "❌ Virtual environment setup failed"
-\
-    exit 1
-\
-fi' > /app/start.sh && chmod +x /app/start.sh
+RUN echo '#!/bin/bash' > /app/start.sh && \
+    echo 'echo "🚀 Starting F5-TTS with Network Volume Virtual Environment"' >> /app/start.sh && \
+    echo 'python /app/setup_network_venv.py' >> /app/start.sh && \
+    echo 'if [ $? -eq 0 ]; then' >> /app/start.sh && \
+    echo '    echo "✅ Virtual environment ready, starting handler..."' >> /app/start.sh && \
+    echo '    /runpod-volume/venv/bin/python /app/runpod-handler.py' >> /app/start.sh && \
+    echo 'else' >> /app/start.sh && \
+    echo '    echo "❌ Virtual environment setup failed"' >> /app/start.sh && \
+    echo '    exit 1' >> /app/start.sh && \
+    echo 'fi' >> /app/start.sh && \
+    chmod +x /app/start.sh
 
 # Use the startup script
 CMD ["/app/start.sh"]
