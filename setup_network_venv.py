@@ -163,5 +163,18 @@ def setup_network_volume_venv():
     return True
 
 if __name__ == "__main__":
-    success = setup_network_volume_venv()
-    sys.exit(0 if success else 1)
+    try:
+        success = setup_network_volume_venv()
+        if success:
+            print("✅ Network volume virtual environment setup complete!")
+            print("🎯 Container ready for RunPod serverless execution")
+            sys.exit(0)
+        else:
+            print("❌ Network volume virtual environment setup failed!")
+            print("💡 Check RunPod network volume configuration and available space")
+            sys.exit(1)
+    except Exception as e:
+        print(f"💥 Unexpected error during setup: {e}")
+        import traceback
+        traceback.print_exc()
+        sys.exit(1)

@@ -45,8 +45,9 @@ print(f"📱 Using device: {device}")
 f5tts_model = None
 model_load_error = None
 
-def initialize_models() -> None:
-    """Initialize F5-TTS model using network volume virtual environment."""
+def initialize_models() -> bool:
+    """Initialize F5-TTS model using network volume virtual environment.
+    Returns True if successful, False otherwise."""
     global f5tts_model, model_load_error
 
     try:
@@ -171,6 +172,7 @@ def initialize_models() -> None:
             print(f"⚠️ Unsupported parameters (using defaults): {', '.join(unsupported_params)}")
         
         print("🎉 F5-TTS initialization complete using network volume virtual environment!")
+        return True
         
     except Exception as e:
         model_load_error = str(e)
@@ -178,9 +180,9 @@ def initialize_models() -> None:
         import traceback
         traceback.print_exc()
         print("⚠️ Serverless worker will return errors for TTS requests")
+        return False
 
-# Initialize models when module loads
-initialize_models()
+# Models will be initialized on first request (lazy loading)
 
 # =============================================================================
 # UTILITY FUNCTIONS
@@ -264,6 +266,14 @@ def generate_tts_audio(text: str, voice_path: Optional[str] = None,
     Generate TTS audio using F5-TTS with optimized parameters for stable, high-quality output.
     Returns (output_file_path, duration, error_message)
     """
+    # Lazy initialization: Initialize models on first request
+    global f5tts_model, model_load_error
+    
+    if f5tts_model is None and model_load_error is None:
+        print("🚀 First request detected - initializing models...")
+        if not initialize_models():
+            return None, 0, f"Model initialization failed: {model_load_error}"
+    
     if model_load_error:
         return None, 0, f"Model not available: {model_load_error}"
 

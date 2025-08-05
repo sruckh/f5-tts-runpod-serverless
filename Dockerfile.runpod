@@ -46,13 +46,28 @@ ENV HF_HUB_DISABLE_PROGRESS_BARS=1
 
 # Create startup script that sets up venv then runs handler
 RUN echo '#!/bin/bash' > /app/start.sh && \
-    echo 'echo "🚀 Starting F5-TTS with Network Volume Virtual Environment"' >> /app/start.sh && \
+    echo 'set -e  # Exit on any error' >> /app/start.sh && \
+    echo 'echo \"🚀 Starting F5-TTS with Network Volume Virtual Environment\"' >> /app/start.sh && \
+    echo '' >> /app/start.sh && \
+    echo '# Check if network volume is available' >> /app/start.sh && \
+    echo 'if [ ! -d \"/runpod-volume\" ]; then' >> /app/start.sh && \
+    echo '    echo \"❌ Network volume not available at /runpod-volume\"' >> /app/start.sh && \
+    echo '    echo \"This container requires RunPod network volume storage\"' >> /app/start.sh && \
+    echo '    exit 1' >> /app/start.sh && \
+    echo 'fi' >> /app/start.sh && \
+    echo '' >> /app/start.sh && \
+    echo '# Setup virtual environment' >> /app/start.sh && \
+    echo 'echo \"🔧 Setting up network volume virtual environment...\"' >> /app/start.sh && \
     echo 'python /app/setup_network_venv.py' >> /app/start.sh && \
+    echo '' >> /app/start.sh && \
     echo 'if [ $? -eq 0 ]; then' >> /app/start.sh && \
-    echo '    echo "✅ Virtual environment ready, starting handler..."' >> /app/start.sh && \
-    echo '    /runpod-volume/venv/bin/python /app/runpod-handler.py' >> /app/start.sh && \
+    echo '    echo \"✅ Virtual environment ready, starting handler...\"' >> /app/start.sh && \
+    echo '    echo \"📍 Using Python: /runpod-volume/venv/bin/python\"' >> /app/start.sh && \
+    echo '    echo \"🎯 Starting RunPod serverless handler with lazy model loading...\"' >> /app/start.sh && \
+    echo '    exec /runpod-volume/venv/bin/python /app/runpod-handler.py' >> /app/start.sh && \
     echo 'else' >> /app/start.sh && \
-    echo '    echo "❌ Virtual environment setup failed"' >> /app/start.sh && \
+    echo '    echo \"❌ Virtual environment setup failed\"' >> /app/start.sh && \
+    echo '    echo \"Check RunPod logs for setup errors\"' >> /app/start.sh && \
     echo '    exit 1' >> /app/start.sh && \
     echo 'fi' >> /app/start.sh && \
     chmod +x /app/start.sh

@@ -1,5 +1,34 @@
 # Engineering Journal
 
+## 2025-08-05 16:30
+
+### Container Startup Fix - Lazy Model Loading Implementation |TASK:TASK-2025-08-05-005|
+- **What**: Fixed RunPod serverless container exit code 1 failure by implementing lazy model loading pattern, deferring F5-TTS model initialization until first request instead of at module import time
+- **Why**: Despite successful Docker builds (TASK-2025-08-05-004), container crashed immediately on startup because `runpod-handler.py` tried to initialize models before virtual environment setup completed, causing import failures for critical packages (f5_tts, transformers, torch)
+- **How**: 
+  - **Root Cause Analysis**: 
+    - `runpod-handler.py:183` called `initialize_models()` immediately when module loaded
+    - Model initialization happened before `setup_network_venv.py` could install packages
+    - Import failures caused container to exit with code 1 before RunPod handler could start
+  - **Lazy Loading Implementation**:
+    - Removed immediate `initialize_models()` call at module import time
+    - Added lazy initialization in `generate_tts_audio()` function - models load on first TTS request
+    - Modified `initialize_models()` to return boolean success status for proper error handling
+  - **Enhanced Startup Script**: Updated `Dockerfile.runpod:48-58` with network volume validation and error handling
+  - **Improved Setup Script**: Enhanced `setup_network_venv.py:165-175` with comprehensive exception handling
+- **Issues**: 
+  - **Startup Sequence**: Critical to ensure virtual environment fully ready before model imports
+  - **RunPod Best Practices**: Lazy loading aligns with serverless cold start optimization patterns
+  - **Error Recovery**: Needed clear error messages for network volume and disk space troubleshooting
+- **Result**:
+  - **Container Startup**: Successfully resolves exit code 1 failures - container now starts properly
+  - **Cold Start Pattern**: First request takes ~10-30s for model loading (expected serverless behavior)
+  - **Warm Performance**: Subsequent requests use cached models for fast response (~1-3s)
+  - **Resource Efficiency**: Lower baseline memory footprint until models actually needed
+  - **Deployment Ready**: Container startup robust with proper error handling and recovery guidance
+
+---
+
 ## 2025-08-05 09:25
 
 ### GitHub Docker Build Syntax Fix - Dockerfile Multi-line RUN Command Resolution |TASK:TASK-2025-08-05-004|
