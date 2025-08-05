@@ -1,83 +1,69 @@
-# F5-TTS RunPod Serverless Dockerfile - Optimized Architecture
-# ================================================================
+# F5-TTS RunPod Serverless - Network Volume Virtual Environment Architecture
+# ============================================================================
 # 
-# This Dockerfile implements proper serverless optimization:
-# - Models pre-loaded during build time
-# - flash_attn installed during build (not runtime)
-# - Optimized storage paths using /tmp
-# - Minimal runtime dependencies
-# - Fast cold start performance
+# NEW APPROACH: Use /runpod-volume for ALL Python dependencies
+# - Container: Minimal Python + system essentials only
+# - Network Volume: Virtual environment with ALL packages
+# - Benefits: 50GB+ space available vs 8GB container limit
+#
+FROM python:3.10-slim
 
-FROM ghcr.io/swivid/f5-tts:main
+# Install only essential system dependencies
+RUN apt-get update && apt-get install -y \
+    wget \
+    curl \
+    git \
+    build-essential \
+    && rm -rf /var/lib/apt/lists/*
 
 # Set working directory
 WORKDIR /app
 
-# =============================================================================
-# RUNTIME INSTALLATION SETUP
-# =============================================================================
+# Copy application code and setup script
+COPY runpod-handler.py /app/
+COPY s3_utils.py /app/
+COPY setup_network_venv.py /app/
 
-# Heavy modules will be installed at runtime to keep base container minimal
-# This includes: flash_attn, whisperx, and model downloads
+# Make setup script executable
+RUN chmod +x /app/setup_network_venv.py
 
-# =============================================================================
-# HUGGINGFACE CACHE CONFIGURATION (CRITICAL FOR BUILD-TIME MODEL DOWNLOADS)
-# =============================================================================
+# Set environment to use network volume virtual environment
+ENV PYTHONPATH="/runpod-volume/venv/lib/python3.10/site-packages"
+ENV PATH="/runpod-volume/venv/bin:$PATH"
+ENV VIRTUAL_ENV="/runpod-volume/venv"
 
-# Set HuggingFace cache to build-available location BEFORE any pip installs
-# This prevents models from downloading to /root/.cache and causing disk space issues
-ENV HF_HOME=/tmp/models
-ENV TRANSFORMERS_CACHE=/tmp/models
-ENV HF_HUB_CACHE=/tmp/models/hub
+# Set cache and model directories to network volume
+ENV HF_HOME="/runpod-volume/models"
+ENV TRANSFORMERS_CACHE="/runpod-volume/models"
+ENV HF_HUB_CACHE="/runpod-volume/models/hub"
+ENV TORCH_HOME="/runpod-volume/models/torch"
+ENV PIP_CACHE_DIR="/runpod-volume/cache/pip"
 
-# Create cache directories before any model downloads occur
-RUN mkdir -p /tmp/models/hub
-
-# =============================================================================
-# SERVERLESS DEPENDENCIES
-# =============================================================================
-
-# Install only essential lightweight dependencies for base container
-# Note: transformers will download models to /tmp/models (not /root/.cache)
-RUN pip install --no-cache-dir \
-    runpod \
-    boto3 \
-    requests \
-    librosa \
-    soundfile \
-    ass
-
-# =============================================================================
-# APPLICATION CODE
-# =============================================================================
-
-# Copy optimized serverless handler and utilities
-COPY runpod-handler.py /app/runpod-handler.py
-COPY s3_utils.py /app/s3_utils.py
-
-# =============================================================================
-# RUNTIME OPTIMIZATION
-# =============================================================================
-
-# Set optimal environment variables for serverless performance
-ENV PYTORCH_CUDA_ALLOC_CONF=max_split_size_mb:512
-ENV CUDA_VISIBLE_DEVICES=0
-
-# Disable unnecessary HuggingFace features for faster startup
-ENV HF_HUB_DISABLE_PROGRESS_BARS=1
-ENV HF_HUB_DISABLE_SYMLINKS_WARNING=1
-ENV HF_HUB_DISABLE_EXPERIMENTAL_WARNING=1
-
-# Set Python optimization flags
+# Minimal optimizations
 ENV PYTHONUNBUFFERED=1
 ENV PYTHONDONTWRITEBYTECODE=1
+ENV HF_HUB_DISABLE_PROGRESS_BARS=1
 
-# =============================================================================
-# CONTAINER STARTUP
-# =============================================================================
+# Create startup script that sets up venv then runs handler
+RUN echo '#!/bin/bash
+\
+echo "🚀 Starting F5-TTS with Network Volume Virtual Environment"
+\
+python /app/setup_network_venv.py
+\
+if [ $? -eq 0 ]; then
+\
+    echo "✅ Virtual environment ready, starting handler..."
+\
+    /runpod-volume/venv/bin/python /app/runpod-handler.py
+\
+else
+\
+    echo "❌ Virtual environment setup failed"
+\
+    exit 1
+\
+fi' > /app/start.sh && chmod +x /app/start.sh
 
-
-
-# Simple startup command - no initialization scripts needed
-# Models are pre-loaded, flash_attn is installed, ready to serve
-CMD ["python", "-u", "/app/runpod-handler.py"]
+# Use the startup script
+CMD ["/app/start.sh"]

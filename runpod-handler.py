@@ -46,232 +46,135 @@ f5tts_model = None
 model_load_error = None
 
 def initialize_models() -> None:
-    """Initialize F5-TTS model with optimized runtime installation of heavy dependencies."""
+    """Initialize F5-TTS model using network volume virtual environment."""
     global f5tts_model, model_load_error
 
     try:
-        print("🔄 Starting optimized warm import process...")
-
-        # Smart package installation system
-        def check_and_install_package(package_name, import_name=None, install_command=None, description=""):
-            """Smart package detection and installation with disk space management."""
-            import_name = import_name or package_name
-            install_command = install_command or [package_name]
-
+        print("🔧 Initializing F5-TTS using network volume virtual environment...")
+        
+        # Verify we're using the network volume virtual environment
+        venv_path = "/runpod-volume/venv"
+        venv_python = f"{venv_path}/bin/python"
+        
+        if not os.path.exists(venv_python):
+            raise RuntimeError(f"Network volume virtual environment not found at {venv_path}")
+            
+        print(f"✅ Using virtual environment: {venv_path}")
+        print(f"🐍 Python executable: {venv_python}")
+        
+        # Verify critical environment variables are set to network volume
+        expected_paths = {
+            'HF_HOME': '/runpod-volume/models',
+            'TRANSFORMERS_CACHE': '/runpod-volume/models',
+            'HF_HUB_CACHE': '/runpod-volume/models/hub',
+            'VIRTUAL_ENV': '/runpod-volume/venv'
+        }
+        
+        for var, expected_path in expected_paths.items():
+            actual_path = os.environ.get(var)
+            if actual_path != expected_path:
+                print(f"⚠️ Environment variable {var} is '{actual_path}', expected '{expected_path}'")
+                os.environ[var] = expected_path
+                print(f"✅ Fixed {var} = {expected_path}")
+            else:
+                print(f"✅ {var} = {actual_path}")
+        
+        # Check network volume disk space
+        import shutil
+        volume_usage = shutil.disk_usage("/runpod-volume")
+        free_space_gb = volume_usage.free / (1024**3)
+        used_space_gb = (volume_usage.total - volume_usage.free) / (1024**3)
+        total_space_gb = volume_usage.total / (1024**3)
+        
+        print(f"📊 Network volume usage:")
+        print(f"   Total: {total_space_gb:.1f}GB")
+        print(f"   Used: {used_space_gb:.1f}GB")
+        print(f"   Free: {free_space_gb:.1f}GB")
+        
+        # Check container disk space for comparison
+        container_usage = shutil.disk_usage("/")
+        container_free_gb = container_usage.free / (1024**3)
+        container_used_gb = (container_usage.total - container_usage.free) / (1024**3)
+        container_total_gb = container_usage.total / (1024**3)
+        
+        print(f"📊 Container volume usage:")
+        print(f"   Total: {container_total_gb:.1f}GB")
+        print(f"   Used: {container_used_gb:.1f}GB")
+        print(f"   Free: {container_free_gb:.1f}GB")
+        
+        # Verify critical packages are available in venv
+        critical_packages = {
+            'f5_tts': 'F5-TTS',
+            'torch': 'PyTorch',
+            'transformers': 'Transformers',
+            'librosa': 'Librosa',
+            'soundfile': 'SoundFile'
+        }
+        
+        missing_packages = []
+        for package, description in critical_packages.items():
             try:
-                # Try importing first
-                if '.' in import_name:
-                    # Handle nested imports like 'google.cloud.speech'
-                    module_parts = import_name.split('.')
-                    module = __import__(module_parts[0])
-                    for part in module_parts[1:]:
+                __import__(package)
+                print(f"✅ {description} available")
+            except ImportError:
+                print(f"❌ {description} not available")
+                missing_packages.append(package)
+        
+        if missing_packages:
+            raise RuntimeError(f"Critical packages missing: {', '.join(missing_packages)}")
+        
+        # Optional packages (warn if missing but don't fail)
+        optional_packages = {
+            'whisperx': 'WhisperX (word-level timing)',
+            'google.cloud.speech': 'Google Cloud Speech (timing fallback)',
+            'flash_attn': 'Flash Attention (GPU optimization)'
+        }
+        
+        for package, description in optional_packages.items():
+            try:
+                if '.' in package:
+                    # Handle nested imports
+                    parts = package.split('.')
+                    module = __import__(parts[0])
+                    for part in parts[1:]:
                         module = getattr(module, part)
                 else:
-                    __import__(import_name)
-                print(f"✅ {package_name} already available {description}")
-                return True
+                    __import__(package)
+                print(f"✅ {description} available")
             except ImportError:
-                print(f"📦 Installing {package_name} at runtime {description}...")
-
-                # Check available disk space before installation
-                import shutil
-                disk_usage = shutil.disk_usage("/")
-                free_space_gb = disk_usage.free / (1024**3)
-
-                if free_space_gb < 1.0:  # Less than 1GB free
-                    print(f"⚠️ Low disk space: {free_space_gb:.2f}GB free. Cleaning up...")
-                    cleanup_disk_space()
-
-                    # Recheck after cleanup
-                    disk_usage = shutil.disk_usage("/")
-                    free_space_gb = disk_usage.free / (1024**3)
-
-                    if free_space_gb < 0.5:  # Still less than 500MB
-                        print(f"❌ Insufficient disk space: {free_space_gb:.2f}GB free. "
-                          f"Skipping {package_name}")
-                        return False
-
-                try:
-                    import subprocess
-                    cmd = ["pip", "install", "--no-cache-dir"] + install_command
-                    subprocess.check_call(cmd)
-                    print(f"✅ {package_name} installed successfully")
-                    return True
-                except subprocess.CalledProcessError as e:
-                    print(f"❌ Failed to install {package_name}: {e}")
-                    return False
+                print(f"⚠️ {description} not available (optional)")
             except Exception as e:
-                print(f"⚠️ {package_name} detection failed: {e}")
-                return False
-
-        def cleanup_disk_space():
-            """Clean up temporary files and caches to free disk space."""
-            import subprocess
-
-
-            print("🧹 Cleaning up disk space...")
-            cleanup_commands = [
-                # Clear pip cache
-                ["pip", "cache", "purge"],
-                # Clear temporary files
-                ["find", "/tmp", "-type", "f", "-delete", "2>/dev/null", "||", "true"],
-                # Clear conda package cache
-                ["conda", "clean", "-a", "-y"],
-            ]
-
-            for cmd in cleanup_commands:
-                try:
-                    subprocess.run(cmd, capture_output=True, check=False)
-                except Exception:
-                    pass  # Ignore cleanup failures
-
-            print("✅ Disk cleanup completed")
-
-        # Optimized runtime installations with smart detection
-
-        # 1. Install transformers (lightweight, always needed)
-        transformers_success = check_and_install_package(
-            "transformers",
-            install_command=["transformers>=4.48.1"],
-            description="(HuggingFace transformers library)"
-        )
-
-        # 2. Install google-cloud-speech (optional, for timing fallback)
-        gcs_success = check_and_install_package(
-            "google-cloud-speech",
-            import_name="google.cloud.speech",
-            description="(timing extraction fallback)"
-        )
-
-        # 3. Install flash_attn (large, GPU-optimized, use platform CUDA)
-        flash_attn_success = check_and_install_package(
-            "flash_attn",
-            install_command=[
-                # Use pip instead of precompiled wheel to avoid CUDA conflicts
-                "flash-attn", "--no-build-isolation"
-            ],
-            description="(GPU-optimized attention)"
-        )
-
-        # 4. Install whisperx (large, for word-level timing)
-        whisperx_success = check_and_install_package(
-            "whisperx",
-            description="(word-level timing extraction)"
-        )
-
-        # Report installation status
-        print(f"📊 Package installation summary:")
-        print(f"   • transformers: {'✅' if transformers_success else '❌'}")
-        print(f"   • google-cloud-speech: {'✅' if gcs_success else '❌'}")
-        print(f"   • flash_attn: {'✅' if flash_attn_success else '❌'}")
-        print(f"   • whisperx: {'✅' if whisperx_success else '❌'}")
-
-        # Verify critical dependencies
-        try:
-            import flash_attn
-            flash_attn_version = getattr(flash_attn, '__version__', 'unknown')
-            print(f"⚡ flash_attn v{flash_attn_version} - optimized attention enabled")
-        except ImportError:
-            print("⚠️ flash_attn not available - using standard attention (slower)")
-        except Exception as e:
-            print(f"⚠️ flash_attn detection failed: {e}")
-
-        # Set up 3-tier cache hierarchy: volume > build-cache > temp
-        def setup_cache_hierarchy():
-            """Configure HuggingFace cache with RunPod volume support and build-time fallback."""
-            volume_cache = "/runpod-volume/models"
-            build_cache = "/tmp/models"  # Set in Dockerfile for build-time downloads
-            
-            # Check if persistent volume is available and writable
-            if os.path.exists(volume_cache) and os.access(volume_cache, os.W_OK):
-                print(f"✅ Using persistent RunPod volume: {volume_cache}")
-                target_cache = volume_cache
-                
-                # Migrate models from build cache to volume if needed
-                if os.path.exists(build_cache):
-                    migrate_build_cache_to_volume(build_cache, volume_cache)
-                    
-            elif os.path.exists(build_cache):
-                print(f"⚠️ RunPod volume unavailable, using build cache: {build_cache}")
-                target_cache = build_cache
-            else:
-                print("⚠️ No cache available, creating temporary cache")
-                target_cache = "/tmp/runtime-models"
-                os.makedirs(target_cache, exist_ok=True)
-            
-            # Set environment variables for chosen cache location
-            os.environ['HF_HOME'] = target_cache
-            os.environ['TRANSFORMERS_CACHE'] = target_cache
-            os.environ['HF_HUB_CACHE'] = os.path.join(target_cache, 'hub')
-            os.environ['TORCH_HOME'] = os.path.join(target_cache, 'torch')
-            
-            # Ensure cache directories exist
-            os.makedirs(os.environ['HF_HUB_CACHE'], exist_ok=True)
-            os.makedirs(os.environ['TORCH_HOME'], exist_ok=True)
-            
-            return target_cache
-
-        def migrate_build_cache_to_volume(build_cache, volume_cache):
-            """Migrate models from build-time cache to persistent volume."""
-            try:
-                import shutil
-                print(f"🔄 Migrating models from build cache to volume...")
-                
-                # Copy build cache contents to volume
-                if os.path.exists(build_cache):
-                    shutil.copytree(build_cache, volume_cache, dirs_exist_ok=True)
-                    print(f"✅ Models migrated to persistent volume")
-                    
-                    # Clean up build cache to save space
-                    shutil.rmtree(build_cache, ignore_errors=True)
-                    print(f"🧹 Build cache cleaned up")
-                    
-            except Exception as e:
-                print(f"⚠️ Model migration failed (continuing with build cache): {e}")
-
-        # Configure cache hierarchy
-        model_cache_dir = setup_cache_hierarchy()
-
-        # Import and initialize F5-TTS
+                print(f"⚠️ {description} check failed: {e}")
+        
+        # Initialize F5-TTS model
+        print("🔄 Loading F5-TTS model...")
         from f5_tts.api import F5TTS
-        print("📦 F5-TTS API imported successfully")
-
-        print(f"🔄 Loading F5-TTS model: F5TTS_v1_Base from {model_cache_dir}")
+        
         f5tts_model = F5TTS(model="F5TTS_v1_Base", device=device)
         print("✅ F5-TTS model loaded successfully")
-
+        
         # Verify model optimization parameters
-        print("🧪 Testing model with optimized parameters...")
-
         import inspect
         infer_params = inspect.signature(f5tts_model.infer).parameters
-
-        # Check for critical optimization parameters
+        
         critical_params = [
             'nfe_step', 'cfg_strength', 'target_rms', 
             'cross_fade_duration', 'sway_sampling_coef', 'speed'
         ]
         supported_params = [param for param in critical_params if param in infer_params]
         unsupported_params = [param for param in critical_params if param not in infer_params]
-
+        
         if supported_params:
             print(f"✅ Supported optimization parameters: {', '.join(supported_params)}")
-
+        
         if unsupported_params:
             print(f"⚠️ Unsupported parameters (using defaults): {', '.join(unsupported_params)}")
-            print("💡 Audio quality optimization may be limited by F5TTS API version")
-
-        # Final disk space report
-        import shutil
-        disk_usage = shutil.disk_usage("/")
-        free_space_gb = disk_usage.free / (1024**3)
-        print(f"💾 Remaining disk space: {free_space_gb:.2f}GB")
-
-        print("✅ Optimized warm import process completed successfully")
-
+        
+        print("🎉 F5-TTS initialization complete using network volume virtual environment!")
+        
     except Exception as e:
         model_load_error = str(e)
-        print(f"❌ Failed to load F5-TTS model: {e}")
+        print(f"❌ Failed to initialize F5-TTS model: {e}")
         import traceback
         traceback.print_exc()
         print("⚠️ Serverless worker will return errors for TTS requests")
