@@ -176,16 +176,61 @@ def initialize_models() -> None:
         except Exception as e:
             print(f"⚠️ flash_attn detection failed: {e}")
 
-        # Set environment variables for model caching on persistent volume
-        model_cache_dir = "/runpod-volume/models"
-        os.environ['HF_HOME'] = model_cache_dir
-        os.environ['TRANSFORMERS_CACHE'] = model_cache_dir
-        os.environ['HF_HUB_CACHE'] = os.path.join(model_cache_dir, 'hub')
-        os.environ['TORCH_HOME'] = os.path.join(model_cache_dir, 'torch')
+        # Set up 3-tier cache hierarchy: volume > build-cache > temp
+        def setup_cache_hierarchy():
+            """Configure HuggingFace cache with RunPod volume support and build-time fallback."""
+            volume_cache = "/runpod-volume/models"
+            build_cache = "/tmp/models"  # Set in Dockerfile for build-time downloads
+            
+            # Check if persistent volume is available and writable
+            if os.path.exists(volume_cache) and os.access(volume_cache, os.W_OK):
+                print(f"✅ Using persistent RunPod volume: {volume_cache}")
+                target_cache = volume_cache
+                
+                # Migrate models from build cache to volume if needed
+                if os.path.exists(build_cache):
+                    migrate_build_cache_to_volume(build_cache, volume_cache)
+                    
+            elif os.path.exists(build_cache):
+                print(f"⚠️ RunPod volume unavailable, using build cache: {build_cache}")
+                target_cache = build_cache
+            else:
+                print("⚠️ No cache available, creating temporary cache")
+                target_cache = "/tmp/runtime-models"
+                os.makedirs(target_cache, exist_ok=True)
+            
+            # Set environment variables for chosen cache location
+            os.environ['HF_HOME'] = target_cache
+            os.environ['TRANSFORMERS_CACHE'] = target_cache
+            os.environ['HF_HUB_CACHE'] = os.path.join(target_cache, 'hub')
+            os.environ['TORCH_HOME'] = os.path.join(target_cache, 'torch')
+            
+            # Ensure cache directories exist
+            os.makedirs(os.environ['HF_HUB_CACHE'], exist_ok=True)
+            os.makedirs(os.environ['TORCH_HOME'], exist_ok=True)
+            
+            return target_cache
 
-        # Ensure cache directories exist
-        os.makedirs(os.environ['HF_HUB_CACHE'], exist_ok=True)
-        os.makedirs(os.environ['TORCH_HOME'], exist_ok=True)
+        def migrate_build_cache_to_volume(build_cache, volume_cache):
+            """Migrate models from build-time cache to persistent volume."""
+            try:
+                import shutil
+                print(f"🔄 Migrating models from build cache to volume...")
+                
+                # Copy build cache contents to volume
+                if os.path.exists(build_cache):
+                    shutil.copytree(build_cache, volume_cache, dirs_exist_ok=True)
+                    print(f"✅ Models migrated to persistent volume")
+                    
+                    # Clean up build cache to save space
+                    shutil.rmtree(build_cache, ignore_errors=True)
+                    print(f"🧹 Build cache cleaned up")
+                    
+            except Exception as e:
+                print(f"⚠️ Model migration failed (continuing with build cache): {e}")
+
+        # Configure cache hierarchy
+        model_cache_dir = setup_cache_hierarchy()
 
         # Import and initialize F5-TTS
         from f5_tts.api import F5TTS

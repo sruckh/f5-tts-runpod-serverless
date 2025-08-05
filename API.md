@@ -32,6 +32,7 @@ Generate text-to-speech audio using uploaded voice models. Returns results immed
   "input": {
     "text": "I am a puppet, and the digital world owns me!",
     "speed": 0.9,
+    "seed": 42,
     "local_voice": "Kurt_12s.wav",
     "return_word_timings": true,
     "timing_format": "srt"
@@ -42,6 +43,7 @@ Generate text-to-speech audio using uploaded voice models. Returns results immed
 **Parameters**:
 - `text` (string, required): Text to convert to speech
 - `speed` (float, optional): Speech speed multiplier (default: 1.0)
+- `seed` (integer, optional): Random seed for reproducible audio generation (1-2147483647)
 - `local_voice` (string, optional): Voice filename from S3 voices/ directory
 - `return_word_timings` (boolean, optional): Generate word-level timing data (default: false)
 - `timing_format` (string, optional): Timing format preference: "srt", "vtt", "csv", "json", "ass" (default: "srt")
@@ -53,6 +55,7 @@ Generate text-to-speech audio using uploaded voice models. Returns results immed
   "audio_url": "https://s3.us-west-001.backblazeb2.com/s3f5tts/output/dacf3df8-e5c3-4a37-b7da-1acf5cd214df.wav?X-Amz-Algorithm=AWS4-HMAC-SHA256&X-Amz-Credential=...",
   "duration": 2.7413333333333334,
   "job_id": "dacf3df8-e5c3-4a37-b7da-1acf5cd214df",
+  "seed": 42,
   "status": "completed",
   "text": "I am a puppet, and the digital world owns me!",
   "timing_files": {
@@ -92,7 +95,6 @@ Generate text-to-speech audio using uploaded voice models. Returns results immed
 - **Features**: Automatic punctuation, confidence scoring, word-level timestamps
 - **Processing Time**: Additional 2-4 seconds for timing extraction
 - **Accuracy**: Enterprise-grade timing precision with confidence scores typically >0.90
-
 ### 2. Upload Voice Model
 
 Upload a voice model via URL. F5-TTS automatically transcribes the reference audio.
@@ -237,6 +239,7 @@ Generate TTS with word-level timing data for FFMPEG subtitle integration:
 {
   "input": {
     "text": "Hello world, this is a test of the timing system.",
+    "seed": 123,
     "return_word_timings": true,
     "timing_format": "ass",
     "timing_method": "whisperx",
@@ -251,6 +254,7 @@ Generate TTS with word-level timing data for FFMPEG subtitle integration:
   "audio_url": "https://s3.us-west-001.backblazeb2.com/s3f5tts/output/12345.wav?X-Amz-Algorithm=AWS4-HMAC-SHA256&X-Amz-Credential=...",
   "duration": 3.2,
   "job_id": "12345",
+  "seed": 123,
   "status": "completed",
   "text": "Hello world, this is a test of the timing system.",
   "timing_files": {
@@ -289,6 +293,7 @@ ffmpeg -i video.mp4 -vf "ass=subtitles.ass" output_with_subtitles.mp4
   "input": {
     "text": "I am a puppet, and the digital world owns me!",
     "speed": 0.9,
+    "seed": 42,
     "local_voice": "Kurt_12s.wav"
   }
 }
@@ -300,6 +305,7 @@ ffmpeg -i video.mp4 -vf "ass=subtitles.ass" output_with_subtitles.mp4
   "audio_url": "https://s3.us-west-001.backblazeb2.com/s3f5tts/output/dacf3df8-e5c3-4a37-b7da-1acf5cd214df.wav",
   "duration": 2.7413333333333334,
   "job_id": "dacf3df8-e5c3-4a37-b7da-1acf5cd214df",
+  "seed": 42,
   "status": "completed",
   "text": "I am a puppet, and the digital world owns me!"
 }
@@ -322,6 +328,7 @@ ffmpeg -i video.mp4 -vf "ass=subtitles.ass" output_with_subtitles.mp4
 {
   "input": {
     "text": "Hello from my custom voice!",
+    "seed": 789,
     "local_voice": "my_voice.wav"
   }
 }
@@ -468,6 +475,10 @@ curl -X POST "https://api.runpod.ai/v2/{endpoint_id}/runsync" \
 - Use appropriate speed settings (0.5-2.0 range)
 - **Synchronous processing** - results returned immediately
 - Monitor S3 storage usage for generated files
+- **Use seed parameter for reproducible results** - same seed + text + voice = identical audio
+- **Seed range**: 1-2147483647 (32-bit signed integer)
+- **Production use**: Set consistent seeds for A/B testing and quality assurance
+- **Development use**: Use random seeds for variety, fixed seeds for debugging
 
 ### Error Recovery
 - Implement retry logic for network timeouts

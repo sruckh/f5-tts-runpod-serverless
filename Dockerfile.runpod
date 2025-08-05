@@ -21,10 +21,24 @@ WORKDIR /app
 # This includes: flash_attn, whisperx, and model downloads
 
 # =============================================================================
+# HUGGINGFACE CACHE CONFIGURATION (CRITICAL FOR BUILD-TIME MODEL DOWNLOADS)
+# =============================================================================
+
+# Set HuggingFace cache to build-available location BEFORE any pip installs
+# This prevents models from downloading to /root/.cache and causing disk space issues
+ENV HF_HOME=/tmp/models
+ENV TRANSFORMERS_CACHE=/tmp/models
+ENV HF_HUB_CACHE=/tmp/models/hub
+
+# Create cache directories before any model downloads occur
+RUN mkdir -p /tmp/models/hub
+
+# =============================================================================
 # SERVERLESS DEPENDENCIES
 # =============================================================================
 
 # Install only essential lightweight dependencies for base container
+# Note: transformers will download models to /tmp/models (not /root/.cache)
 RUN pip install --no-cache-dir \
     runpod \
     boto3 \
