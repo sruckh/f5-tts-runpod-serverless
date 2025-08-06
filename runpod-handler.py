@@ -182,7 +182,7 @@ def initialize_models() -> bool:
         print("⚠️ Serverless worker will return errors for TTS requests")
         return False
 
-# Models will be initialized on first request (lazy loading)
+# Models will be initialized at startup (warm loading) for optimal performance
 
 # =============================================================================
 # UTILITY FUNCTIONS
@@ -266,13 +266,8 @@ def generate_tts_audio(text: str, voice_path: Optional[str] = None,
     Generate TTS audio using F5-TTS with optimized parameters for stable, high-quality output.
     Returns (output_file_path, duration, error_message)
     """
-    # Lazy initialization: Initialize models on first request
+    # Warm loading: Models should already be initialized at startup
     global f5tts_model, model_load_error
-    
-    if f5tts_model is None and model_load_error is None:
-        print("🚀 First request detected - initializing models...")
-        if not initialize_models():
-            return None, 0, f"Model initialization failed: {model_load_error}"
     
     if model_load_error:
         return None, 0, f"Model not available: {model_load_error}"
@@ -1083,9 +1078,19 @@ def handler(job: Dict[str, Any]) -> Dict[str, Any]:
 # =============================================================================
 
 if __name__ == "__main__":
-    print("✅ F5-TTS RunPod serverless worker ready!")
+    print("✅ F5-TTS RunPod serverless worker starting...")
     print("🎯 Architecture: Synchronous processing with immediate results")
-    print("⚡ Models pre-loaded for optimal performance")
+    print("🔥 Warm loading: Pre-loading models for optimal performance...")
+    
+    # WARM LOADING: Initialize models at startup for fast inference
+    if not initialize_models():
+        print("❌ CRITICAL: Model initialization failed during startup!")
+        print("🚨 Container startup aborted - models must be loaded for serverless operation")
+        import sys
+        sys.exit(1)
+    
+    print("✅ F5-TTS models pre-loaded successfully!")
+    print("🚀 RunPod serverless worker ready for fast inference!")
 
     # Start RunPod serverless worker
     runpod.serverless.start({"handler": handler})

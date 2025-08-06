@@ -58,7 +58,12 @@ RUN echo '#!/bin/bash' > /app/start.sh && \
     echo '' >> /app/start.sh && \
     echo '# Setup virtual environment' >> /app/start.sh && \
     echo 'echo \"🔧 Setting up network volume virtual environment...\"' >> /app/start.sh && \
-    echo 'python /app/setup_network_venv.py' >> /app/start.sh && \
+    echo 'echo "📋 Debug: About to run setup_network_venv.py"' >> /app/start.sh && \
+    echo 'echo "📍 Python version: $(python3 --version)"' >> /app/start.sh && \
+    echo 'echo "📋 Current directory: $(pwd)"' >> /app/start.sh && \
+    echo 'echo "📋 Available disk space:"' >> /app/start.sh && \
+    echo 'df -h /runpod-volume 2>/dev/null || echo "Network volume not mounted"' >> /app/start.sh && \
+    echo 'python3 /app/setup_network_venv.py' && \
     echo '' >> /app/start.sh && \
     echo 'if [ $? -eq 0 ]; then' >> /app/start.sh && \
     echo '    echo \"✅ Virtual environment ready, starting handler...\"' >> /app/start.sh && \
@@ -66,8 +71,12 @@ RUN echo '#!/bin/bash' > /app/start.sh && \
     echo '    echo \"🎯 Starting RunPod serverless handler with lazy model loading...\"' >> /app/start.sh && \
     echo '    exec /runpod-volume/venv/bin/python /app/runpod-handler.py' >> /app/start.sh && \
     echo 'else' >> /app/start.sh && \
-    echo '    echo \"❌ Virtual environment setup failed\"' >> /app/start.sh && \
-    echo '    echo \"Check RunPod logs for setup errors\"' >> /app/start.sh && \
+    echo '    echo "❌ Virtual environment setup failed"' >> /app/start.sh && \
+    echo '    echo "💡 Check RunPod logs for setup errors"' >> /app/start.sh && \
+    echo '    echo "🔍 Debug info:"' >> /app/start.sh && \
+    echo '    echo "  - Network volume: $(ls -la /runpod-volume 2>/dev/null || echo 'not accessible')"' >> /app/start.sh && \
+    echo '    echo "  - Free space: $(df -h /runpod-volume 2>/dev/null || echo 'cannot check')"' >> /app/start.sh && \
+    echo '    echo "  - Python: $(which python3)"' >> /app/start.sh && \
     echo '    exit 1' >> /app/start.sh && \
     echo 'fi' >> /app/start.sh && \
     chmod +x /app/start.sh
