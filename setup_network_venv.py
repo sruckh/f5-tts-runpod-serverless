@@ -163,18 +163,61 @@ def setup_network_volume_venv():
     return True
 
 if __name__ == "__main__":
+    print("🚀 F5-TTS Network Volume Virtual Environment Setup")
+    print("📋 This setup creates Python virtual environment on RunPod network volume")
+    print()
+    
     try:
         success = setup_network_volume_venv()
         if success:
             print("✅ Network volume virtual environment setup complete!")
             print("🎯 Container ready for RunPod serverless execution")
+            print()
+            print("📊 Setup Summary:")
+            print("   ✅ Virtual environment created")
+            print("   ✅ Essential packages installed")
+            print("   ✅ Cache directories configured")
+            print("   ✅ Environment variables set")
             sys.exit(0)
         else:
-            print("❌ Network volume virtual environment setup failed!")
-            print("💡 Check RunPod network volume configuration and available space")
-            sys.exit(1)
+            print("⚠️ Network volume virtual environment setup had issues!")
+            print("🔧 Some packages may be missing, but basic functionality should work")
+            print()
+            print("📋 Troubleshooting Info:")
+            print("   - Check RunPod network volume is mounted at /runpod-volume")
+            print("   - Verify sufficient disk space (minimum 10GB free)")
+            print("   - Review package installation logs above")
+            print("   - Container will attempt to continue with available packages")
+            print()
+            print("⚡ Continuing startup - container may work with reduced functionality")
+            # Don't exit with error - let container continue and try to work
+            sys.exit(0)
     except Exception as e:
         print(f"💥 Unexpected error during setup: {e}")
+        print()
+        print("🔍 Diagnostic Information:")
+        
+        # Provide detailed diagnostic info
+        try:
+            import os
+            print(f"   - Network volume exists: {os.path.exists('/runpod-volume')}")
+            if os.path.exists('/runpod-volume'):
+                import shutil
+                usage = shutil.disk_usage('/runpod-volume')
+                free_gb = usage.free / (1024**3)
+                print(f"   - Network volume free space: {free_gb:.1f}GB")
+            print(f"   - Python version: {sys.version}")
+            print(f"   - Current directory: {os.getcwd()}")
+        except:
+            print("   - Could not gather diagnostic info")
+            
+        print()
         import traceback
         traceback.print_exc()
+        print()
+        print("🚨 CRITICAL: Setup failed completely!")
+        print("📞 This likely indicates a RunPod configuration issue")
+        print("🔧 Check: Network volume mounting, disk space, Python environment")
+        print()
+        print("⚠️  Container startup will fail - please review RunPod configuration")
         sys.exit(1)

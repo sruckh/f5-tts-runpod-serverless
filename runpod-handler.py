@@ -122,6 +122,18 @@ def initialize_models() -> bool:
                 missing_packages.append(package)
         
         if missing_packages:
+            print(f"🚨 CRITICAL: Missing essential packages: {', '.join(missing_packages)}")
+            print("💡 This usually indicates:")
+            print("   - Network volume virtual environment setup failed")
+            print("   - Package installation was interrupted")
+            print("   - Insufficient disk space during setup")
+            print()
+            print("🔧 Recommended fixes:")
+            print("   1. Check RunPod network volume is properly mounted")
+            print("   2. Verify sufficient disk space (>10GB free)")
+            print("   3. Review setup_network_venv.py logs for installation errors")
+            print("   4. Try restarting the container to retry package installation")
+            print()
             raise RuntimeError(f"Critical packages missing: {', '.join(missing_packages)}")
         
         # Optional packages (warn if missing but don't fail)
