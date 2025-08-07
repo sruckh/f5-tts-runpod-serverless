@@ -1,308 +1,695 @@
 #!/usr/bin/env python3
 """
-S3 Utilities for F5-TTS RunPod Serverless - Optimized for Serverless Pattern
-============================================================================
+F5-TTS Engine for RunPod Serverless
 
-Simplified S3 utilities focused on:
-- Fast file uploads (output audio)
-- Quick voice file downloads
-- No model caching (models pre-loaded in container)
-- Minimal dependencies and fast initialization
+Handles F5-TTS model loading, caching, and inference with warm loading
+for 1-3 second inference performance.
 """
 
-import boto3
 import os
-from botocore.exceptions import ClientError, NoCredentialsError
-from typing import Optional
+import sys
+import logging
+import torch
+import torchaudio
+import time
+from pathlib import Path
+from typing import Optional, Union, Tuple
 
-# =============================================================================
-# S3 CONFIGURATION
-# =============================================================================
+# Add container app path
+sys.path.append('/app')
 
-# S3 configuration from environment variables
-S3_BUCKET = os.environ.get("S3_BUCKET")
-AWS_ACCESS_KEY_ID = os.environ.get("AWS_ACCESS_KEY_ID")
-AWS_SECRET_ACCESS_KEY = os.environ.get("AWS_SECRET_ACCESS_KEY")
-AWS_REGION = os.environ.get("AWS_REGION", "us-east-1")
-AWS_ENDPOINT_URL = os.environ.get("AWS_ENDPOINT_URL")  # For S3-compatible services
+try:
+    from setup_network_venv import (  # config.py
+        F5TTS_MODELS_PATH, TEMP_PATH, DEFAULT_COMPUTE_TYPE
+    )
+except ImportError:
+    F5TTS_MODELS_PATH = Path("/runpod-volume/f5tts/models/f5-tts")
+    TEMP_PATH = Path("/runpod-volume/f5tts/temp")
+    DEFAULT_COMPUTE_TYPE = "float16"
 
-# =============================================================================
-# S3 CLIENT INITIALIZATION
-# =============================================================================
+# Setup logging
+logger = logging.getLogger(__name__)
 
-# Initialize S3 client with optimized configuration for serverless
-s3_client = None
-
-def initialize_s3_client():
-    """Initialize S3 client with error handling."""
-    global s3_client
+class F5TTSEngine:
+    """F5-TTS model engine with warm loading and caching."""
     
-    if s3_client is not None:
-        return s3_client
+    def __init__(self, model_name: str = "F5TTS_Base", compute_type: str = DEFAULT_COMPUTE_TYPE):
+        """
+        Initialize F5-TTS engine.
+        
+        Args:
+            model_name: Name of F5-TTS model to load
+            compute_type: Compute type (float16, float32, int8)
+        """
+        self.model_name = model_name
+        self.compute_type = compute_type
+        self.device = "cuda" if torch.cuda.is_available() else "cpu"
+        
+        # Model components
+        self.model = None
+        self.vocoder = None
+        self.tokenizer = None
+        
+        # Model cache paths
+        self.model_dir = F5TTS_MODELS_PATH / model_name
+        self.model_dir.mkdir(parents=True, exist_ok=True)
+        
+        # Performance tracking
+        self.model_load_time = None
+        self.last_inference_time = None
+        
+        logger.info(f"F5-TTS Engine initialized: {model_name} on {self.device}")
     
-    try:
-        if not all([S3_BUCKET, AWS_ACCESS_KEY_ID, AWS_SECRET_ACCESS_KEY]):
-            print("⚠️ S3 credentials not configured - uploads will fail")
-            return None
-        
-        client_config = {
-            "service_name": "s3",
-            "aws_access_key_id": AWS_ACCESS_KEY_ID,
-            "aws_secret_access_key": AWS_SECRET_ACCESS_KEY,
-            "region_name": AWS_REGION,
-        }
-        
-        # Add endpoint URL for S3-compatible services (Backblaze B2, etc.)
-        if AWS_ENDPOINT_URL:
-            client_config["endpoint_url"] = AWS_ENDPOINT_URL
-            print(f"🔗 Using S3-compatible endpoint: {AWS_ENDPOINT_URL}")
-        
-        s3_client = boto3.client(**client_config)
-        print(f"✅ S3 client ready for bucket: {S3_BUCKET}")
-        return s3_client
-        
-    except Exception as e:
-        print(f"❌ Failed to initialize S3 client: {e}")
-        return None
-
-# Initialize client when module loads
-s3_client = initialize_s3_client()
-
-# =============================================================================
-# CORE S3 OPERATIONS - Optimized for Serverless
-# =============================================================================
-
-def upload_to_s3(local_file_path: str, s3_key: str, make_public: bool = True) -> Optional[str]:
-    """
-    Upload file to S3 and return public URL.
-    Optimized for fast serverless execution.
-    
-    Args:
-        local_file_path: Path to local file to upload
-        s3_key: S3 object key (path in bucket)
-        make_public: Whether to make file publicly accessible
-    
-    Returns:
-        Public URL if successful, None if failed
-    """
-    if not s3_client or not S3_BUCKET:
-        print("❌ S3 not configured - cannot upload")
-        return None
-    
-    if not os.path.exists(local_file_path):
-        print(f"❌ Local file not found: {local_file_path}")
-        return None
-    
-    try:
-        file_size = os.path.getsize(local_file_path)
-        print(f"☁️ Uploading {file_size} bytes to s3://{S3_BUCKET}/{s3_key}")
-        
-        # Upload with optimized configuration
-        extra_args = {}
-        if make_public:
-            extra_args['ACL'] = 'public-read'
-        
-        # Set content type based on file extension
-        if s3_key.endswith('.wav'):
-            extra_args['ContentType'] = 'audio/wav'
-        elif s3_key.endswith('.mp3'):
-            extra_args['ContentType'] = 'audio/mpeg'
-        
-        s3_client.upload_file(local_file_path, S3_BUCKET, s3_key, ExtraArgs=extra_args)
-        
-        # Generate public URL
-        if AWS_ENDPOINT_URL:
-            # Custom endpoint URL construction
-            public_url = f"{AWS_ENDPOINT_URL}/{S3_BUCKET}/{s3_key}"
-        else:
-            # Standard AWS S3 URL
-            public_url = f"https://{S3_BUCKET}.s3.{AWS_REGION}.amazonaws.com/{s3_key}"
-        
-        print(f"✅ Upload successful: {public_url}")
-        return public_url
-        
-    except ClientError as e:
-        error_code = e.response['Error']['Code']
-        print(f"❌ S3 upload failed ({error_code}): {e}")
-        return None
-    except Exception as e:
-        print(f"❌ Upload error: {e}")
-        return None
-
-def download_from_s3(s3_key: str, local_file_path: str) -> bool:
-    """
-    Download file from S3 to local path.
-    Optimized for fast serverless execution.
-    
-    Args:
-        s3_key: S3 object key to download
-        local_file_path: Local path to save file
-    
-    Returns:
-        True if successful, False if failed
-    """
-    if not s3_client or not S3_BUCKET:
-        print("❌ S3 not configured - cannot download")
-        return False
-    
-    try:
-        print(f"📥 Downloading s3://{S3_BUCKET}/{s3_key} to {local_file_path}")
-        
-        # Create parent directory if needed
-        os.makedirs(os.path.dirname(local_file_path), exist_ok=True)
-        
-        # Download file
-        s3_client.download_file(S3_BUCKET, s3_key, local_file_path)
-        
-        # Verify download
-        if os.path.exists(local_file_path) and os.path.getsize(local_file_path) > 0:
-            file_size = os.path.getsize(local_file_path)
-            print(f"✅ Download successful: {file_size} bytes")
-            return True
-        else:
-            print("❌ Downloaded file is empty or missing")
-            return False
+    def _setup_model_cache(self):
+        """Setup model cache directory structure."""
+        try:
+            cache_dirs = [
+                self.model_dir / "checkpoints",
+                self.model_dir / "vocoder", 
+                self.model_dir / "tokenizer"
+            ]
             
-    except ClientError as e:
-        error_code = e.response['Error']['Code']
-        if error_code == 'NoSuchKey':
-            print(f"❌ File not found in S3: {s3_key}")
-        else:
-            print(f"❌ S3 download failed ({error_code}): {e}")
-        return False
-    except Exception as e:
-        print(f"❌ Download error: {e}")
-        return False
-
-def check_s3_object_exists(s3_key: str) -> bool:
-    """
-    Check if an object exists in S3.
-    Fast existence check for serverless use.
-    
-    Args:
-        s3_key: S3 object key to check
-    
-    Returns:
-        True if object exists, False otherwise
-    """
-    if not s3_client or not S3_BUCKET:
-        return False
-    
-    try:
-        s3_client.head_object(Bucket=S3_BUCKET, Key=s3_key)
-        return True
-    except ClientError as e:
-        if e.response['Error']['Code'] == '404':
-            return False
-        else:
-            print(f"❌ Error checking S3 object: {e}")
-            return False
-    except Exception as e:
-        print(f"❌ Error checking S3 object: {e}")
-        return False
-
-def list_s3_objects(prefix: str, max_keys: int = 1000) -> list:
-    """
-    List objects in S3 with given prefix.
-    Optimized for serverless with key limits.
-    
-    Args:
-        prefix: S3 key prefix to filter by
-        max_keys: Maximum number of keys to return
-    
-    Returns:
-        List of object info dictionaries
-    """
-    if not s3_client or not S3_BUCKET:
-        return []
-    
-    try:
-        response = s3_client.list_objects_v2(
-            Bucket=S3_BUCKET, 
-            Prefix=prefix, 
-            MaxKeys=max_keys
-        )
-        
-        objects = []
-        if 'Contents' in response:
-            for obj in response['Contents']:
-                objects.append({
-                    'key': obj['Key'],
-                    'size': obj['Size'],
-                    'last_modified': obj['LastModified'],
-                    'etag': obj['ETag']
-                })
-        
-        print(f"📋 Listed {len(objects)} objects with prefix: {prefix}")
-        return objects
-        
-    except ClientError as e:
-        error_code = e.response['Error']['Code']
-        print(f"❌ S3 list failed ({error_code}): {e}")
-        return []
-    except Exception as e:
-        print(f"❌ List error: {e}")
-        return []
-
-# =============================================================================
-# UTILITY FUNCTIONS
-# =============================================================================
-
-def get_s3_status() -> dict:
-    """
-    Get S3 configuration status for debugging.
-    Returns configuration and connectivity information.
-    """
-    status = {
-        "configured": bool(s3_client and S3_BUCKET),
-        "bucket": S3_BUCKET,
-        "region": AWS_REGION,
-        "endpoint": AWS_ENDPOINT_URL,
-        "credentials": bool(AWS_ACCESS_KEY_ID and AWS_SECRET_ACCESS_KEY)
-    }
-    
-    # Test connectivity if configured
-    if status["configured"]:
-        try:
-            s3_client.head_bucket(Bucket=S3_BUCKET)
-            status["connectivity"] = True
+            for cache_dir in cache_dirs:
+                cache_dir.mkdir(parents=True, exist_ok=True)
+            
+            logger.info(f"Model cache setup: {self.model_dir}")
+            
         except Exception as e:
-            status["connectivity"] = False
-            status["error"] = str(e)
-    else:
-        status["connectivity"] = False
+            logger.error(f"Failed to setup model cache: {e}")
+            raise
     
-    return status
+    def load_model(self):
+        """Load F5-TTS model with caching for warm loading."""
+        try:
+            if self.model is not None:
+                logger.info("Model already loaded - using cached version")
+                return
+                
+            start_time = time.time()
+            logger.info(f"Loading F5-TTS model: {self.model_name}")
+            
+            # Setup cache directories
+            self._setup_model_cache()
+            
+            # Import F5-TTS modules (only available after environment setup)
+            try:
+                from f5_tts.api import F5TTS
+                from f5_tts.infer.utils_infer import (
+                    load_model as load_f5tts_model,
+                    load_vocoder
+                )
+            except ImportError as e:
+                logger.error(f"F5-TTS import failed: {e}")
+                raise RuntimeError("F5-TTS not available - check environment setup")
+            
+            # Load main model
+            logger.info("Loading F5-TTS main model...")
+            self.model = load_f5tts_model(
+                model_name=self.model_name,
+                device=self.device,
+                cache_dir=str(self.model_dir / "checkpoints")
+            )
+            
+            # Load vocoder
+            logger.info("Loading vocoder...")  
+            self.vocoder = load_vocoder(
+                device=self.device,
+                cache_dir=str(self.model_dir / "vocoder")
+            )
+            
+            # Set compute type
+            if self.compute_type == "float16" and self.device == "cuda":
+                self.model = self.model.half()
+                self.vocoder = self.vocoder.half()
+                logger.info("Models converted to float16")
+            
+            # Model optimization for inference
+            self.model.eval()
+            self.vocoder.eval()
+            
+            with torch.no_grad():
+                # Warm up models with dummy input
+                logger.info("Warming up models...")
+                dummy_text = "Hello world"
+                dummy_audio = torch.randn(1, 24000).to(self.device)
+                
+                if self.compute_type == "float16":
+                    dummy_audio = dummy_audio.half()
+                
+                # Run dummy inference to load CUDA kernels
+                try:
+                    _ = self.model.infer(
+                        text=dummy_text,
+                        ref_audio=dummy_audio,
+                        ref_text="Reference audio",
+                        gen_text=dummy_text
+                    )
+                except Exception as e:
+                    logger.warning(f"Model warmup failed: {e}")
+            
+            self.model_load_time = time.time() - start_time
+            logger.info(f"F5-TTS model loaded successfully in {self.model_load_time:.2f}s")
+            
+        except Exception as e:
+            logger.error(f"Failed to load F5-TTS model: {e}")
+            raise
+    
+    def process_reference_audio(self, audio_path: Union[str, Path]) -> Tuple[torch.Tensor, str]:
+        """
+        Process reference audio for F5-TTS.
+        
+        Args:
+            audio_path: Path to reference audio file
+            
+        Returns:
+            Tuple of (audio_tensor, reference_text)
+        """
+        try:
+            audio_path = Path(audio_path)
+            if not audio_path.exists():
+                raise FileNotFoundError(f"Reference audio not found: {audio_path}")
+            
+            logger.info(f"Processing reference audio: {audio_path}")
+            
+            # Load audio
+            audio, sample_rate = torchaudio.load(str(audio_path))
+            
+            # Resample to 24kHz if needed
+            if sample_rate != 24000:
+                resampler = torchaudio.transforms.Resample(sample_rate, 24000)
+                audio = resampler(audio)
+                logger.info(f"Resampled audio from {sample_rate}Hz to 24kHz")
+            
+            # Convert to mono if stereo
+            if audio.shape[0] > 1:
+                audio = torch.mean(audio, dim=0, keepdim=True)
+                logger.info("Converted stereo audio to mono")
+            
+            # Move to device and set compute type
+            audio = audio.to(self.device)
+            if self.compute_type == "float16":
+                audio = audio.half()
+            
+            # For now, use a default reference text
+            # TODO: Implement ASR to get actual reference text
+            reference_text = "This is a reference audio sample."
+            
+            logger.info("Reference audio processed successfully")
+            return audio, reference_text
+            
+        except Exception as e:
+            logger.error(f"Failed to process reference audio: {e}")
+            raise
+    
+    def synthesize_speech(
+        self, 
+        text: str, 
+        reference_audio_path: Union[str, Path],
+        output_path: Optional[Union[str, Path]] = None
+    ) -> Path:
+        """
+        Synthesize speech using F5-TTS.
+        
+        Args:
+            text: Text to synthesize
+            reference_audio_path: Path to reference voice audio
+            output_path: Output audio file path (optional)
+            
+        Returns:
+            Path to generated audio file
+        """
+        try:
+            start_time = time.time()
+            logger.info(f"Synthesizing speech for text length: {len(text)}")
+            
+            # Ensure model is loaded
+            if self.model is None:
+                self.load_model()
+            
+            # Process reference audio
+            ref_audio, ref_text = self.process_reference_audio(reference_audio_path)
+            
+            # Generate output path if not provided
+            if output_path is None:
+                timestamp = int(time.time())
+                output_path = TEMP_PATH / f"f5tts_output_{timestamp}.wav"
+            
+            output_path = Path(output_path)
+            output_path.parent.mkdir(parents=True, exist_ok=True)
+            
+            # Generate speech
+            logger.info("Running F5-TTS inference...")
+            
+            with torch.no_grad():
+                # Generate audio
+                generated_audio = self.model.infer(
+                    text=text,
+                    ref_audio=ref_audio,
+                    ref_text=ref_text,
+                    gen_text=text
+                )
+                
+                # Convert to CPU and save
+                if isinstance(generated_audio, torch.Tensor):
+                    generated_audio = generated_audio.cpu().float()
+                    
+                    # Save audio file
+                    torchaudio.save(
+                        str(output_path),
+                        generated_audio,
+                        24000  # 24kHz sample rate
+                    )
+                else:
+                    raise RuntimeError(f"Unexpected model output type: {type(generated_audio)}")
+            
+            # Performance tracking
+            inference_time = time.time() - start_time
+            self.last_inference_time = inference_time
+            
+            logger.info(f"Speech synthesis completed in {inference_time:.2f}s")
+            logger.info(f"Output saved to: {output_path}")
+            
+            return output_path
+            
+        except Exception as e:
+            logger.error(f"Failed to synthesize speech: {e}")
+            raise
+    
+    def get_model_info(self) -> dict:
+        """Get information about the loaded model."""
+        return {
+            "model_name": self.model_name,
+            "compute_type": self.compute_type,
+            "device": self.device,
+            "model_loaded": self.model is not None,
+            "model_load_time": self.model_load_time,
+            "last_inference_time": self.last_inference_time,
+            "cuda_available": torch.cuda.is_available(),
+            "cuda_memory": torch.cuda.get_device_properties(0).total_memory if torch.cuda.is_available() else None
+        }
+    
+    def cleanup(self):
+        """Clean up model and free memory."""
+        try:
+            if self.model is not None:
+                del self.model
+                self.model = None
+                
+            if self.vocoder is not None:
+                del self.vocoder
+                self.vocoder = None
+                
+            if torch.cuda.is_available():
+                torch.cuda.empty_cache()
+                
+            logger.info("F5-TTS engine cleaned up")
+            
+        except Exception as e:
+            logger.error(f"Failed to cleanup F5-TTS engine: {e}")
 
-def cleanup_temp_files(file_paths: list):
+# Global engine instance for warm loading
+_f5tts_engine = None
+
+def get_f5tts_engine() -> F5TTSEngine:
+    """Get global F5-TTS engine instance."""
+    global _f5tts_engine
+    if _f5tts_engine is None:
+        _f5tts_engine = F5TTSEngine()
+    return _f5tts_engine
+
+def process_tts(text: str, reference_audio_path: Union[str, Path]) -> Path:
     """
-    Clean up temporary files safely.
-    Helper function for serverless cleanup.
+    Convenience function for TTS processing.
     
     Args:
-        file_paths: List of file paths to delete
+        text: Text to synthesize  
+        reference_audio_path: Path to reference audio
+        
+    Returns:
+        Path to generated audio file
     """
-    for file_path in file_paths:
-        try:
-            if file_path and os.path.exists(file_path):
-                os.unlink(file_path)
-                print(f"🗑️ Cleaned up: {file_path}")
-        except Exception as e:
-            print(f"⚠️ Failed to cleanup {file_path}: {e}")
+    engine = get_f5tts_engine()
+    return engine.synthesize_speech(text, reference_audio_path)
 
-# =============================================================================
-# MODULE INITIALIZATION
-# =============================================================================
-
+# Test function
 if __name__ == "__main__":
-    # Test S3 configuration when run directly
-    print("🧪 Testing S3 configuration...")
-    status = get_s3_status()
+    """Test F5-TTS engine."""
+    try:
+        engine = F5TTSEngine()
+        logger.info("F5-TTS engine test passed")
+        
+        # Print model info
+        info = engine.get_model_info()
+        for key, value in info.items():
+            logger.info(f"{key}: {value}")
+            
+    except Exception as e:
+        logger.error(f"F5-TTS engine test failed: {e}")
+        sys.exit(1)#!/usr/bin/env python3
+"""
+F5-TTS Engine for RunPod Serverless
+
+Handles F5-TTS model loading, caching, and inference with warm loading
+for 1-3 second inference performance.
+"""
+
+import os
+import sys
+import logging
+import torch
+import torchaudio
+import time
+from pathlib import Path
+from typing import Optional, Union, Tuple
+
+# Add container app path
+sys.path.append('/app')
+
+try:
+    from setup_network_venv import (  # config.py
+        F5TTS_MODELS_PATH, TEMP_PATH, DEFAULT_COMPUTE_TYPE
+    )
+except ImportError:
+    F5TTS_MODELS_PATH = Path("/runpod-volume/f5tts/models/f5-tts")
+    TEMP_PATH = Path("/runpod-volume/f5tts/temp")
+    DEFAULT_COMPUTE_TYPE = "float16"
+
+# Setup logging
+logger = logging.getLogger(__name__)
+
+class F5TTSEngine:
+    """F5-TTS model engine with warm loading and caching."""
     
-    for key, value in status.items():
-        print(f"   {key}: {value}")
+    def __init__(self, model_name: str = "F5TTS_Base", compute_type: str = DEFAULT_COMPUTE_TYPE):
+        """
+        Initialize F5-TTS engine.
+        
+        Args:
+            model_name: Name of F5-TTS model to load
+            compute_type: Compute type (float16, float32, int8)
+        """
+        self.model_name = model_name
+        self.compute_type = compute_type
+        self.device = "cuda" if torch.cuda.is_available() else "cpu"
+        
+        # Model components
+        self.model = None
+        self.vocoder = None
+        self.tokenizer = None
+        
+        # Model cache paths
+        self.model_dir = F5TTS_MODELS_PATH / model_name
+        self.model_dir.mkdir(parents=True, exist_ok=True)
+        
+        # Performance tracking
+        self.model_load_time = None
+        self.last_inference_time = None
+        
+        logger.info(f"F5-TTS Engine initialized: {model_name} on {self.device}")
     
-    if status["configured"] and status["connectivity"]:
-        print("✅ S3 ready for serverless operations")
-    else:
-        print("❌ S3 configuration issues detected")
+    def _setup_model_cache(self):
+        """Setup model cache directory structure."""
+        try:
+            cache_dirs = [
+                self.model_dir / "checkpoints",
+                self.model_dir / "vocoder", 
+                self.model_dir / "tokenizer"
+            ]
+            
+            for cache_dir in cache_dirs:
+                cache_dir.mkdir(parents=True, exist_ok=True)
+            
+            logger.info(f"Model cache setup: {self.model_dir}")
+            
+        except Exception as e:
+            logger.error(f"Failed to setup model cache: {e}")
+            raise
+    
+    def load_model(self):
+        """Load F5-TTS model with caching for warm loading."""
+        try:
+            if self.model is not None:
+                logger.info("Model already loaded - using cached version")
+                return
+                
+            start_time = time.time()
+            logger.info(f"Loading F5-TTS model: {self.model_name}")
+            
+            # Setup cache directories
+            self._setup_model_cache()
+            
+            # Import F5-TTS modules (only available after environment setup)
+            try:
+                from f5_tts.api import F5TTS
+                from f5_tts.infer.utils_infer import (
+                    load_model as load_f5tts_model,
+                    load_vocoder
+                )
+            except ImportError as e:
+                logger.error(f"F5-TTS import failed: {e}")
+                raise RuntimeError("F5-TTS not available - check environment setup")
+            
+            # Load main model
+            logger.info("Loading F5-TTS main model...")
+            self.model = load_f5tts_model(
+                model_name=self.model_name,
+                device=self.device,
+                cache_dir=str(self.model_dir / "checkpoints")
+            )
+            
+            # Load vocoder
+            logger.info("Loading vocoder...")  
+            self.vocoder = load_vocoder(
+                device=self.device,
+                cache_dir=str(self.model_dir / "vocoder")
+            )
+            
+            # Set compute type
+            if self.compute_type == "float16" and self.device == "cuda":
+                self.model = self.model.half()
+                self.vocoder = self.vocoder.half()
+                logger.info("Models converted to float16")
+            
+            # Model optimization for inference
+            self.model.eval()
+            self.vocoder.eval()
+            
+            with torch.no_grad():
+                # Warm up models with dummy input
+                logger.info("Warming up models...")
+                dummy_text = "Hello world"
+                dummy_audio = torch.randn(1, 24000).to(self.device)
+                
+                if self.compute_type == "float16":
+                    dummy_audio = dummy_audio.half()
+                
+                # Run dummy inference to load CUDA kernels
+                try:
+                    _ = self.model.infer(
+                        text=dummy_text,
+                        ref_audio=dummy_audio,
+                        ref_text="Reference audio",
+                        gen_text=dummy_text
+                    )
+                except Exception as e:
+                    logger.warning(f"Model warmup failed: {e}")
+            
+            self.model_load_time = time.time() - start_time
+            logger.info(f"F5-TTS model loaded successfully in {self.model_load_time:.2f}s")
+            
+        except Exception as e:
+            logger.error(f"Failed to load F5-TTS model: {e}")
+            raise
+    
+    def process_reference_audio(self, audio_path: Union[str, Path]) -> Tuple[torch.Tensor, str]:
+        """
+        Process reference audio for F5-TTS.
+        
+        Args:
+            audio_path: Path to reference audio file
+            
+        Returns:
+            Tuple of (audio_tensor, reference_text)
+        """
+        try:
+            audio_path = Path(audio_path)
+            if not audio_path.exists():
+                raise FileNotFoundError(f"Reference audio not found: {audio_path}")
+            
+            logger.info(f"Processing reference audio: {audio_path}")
+            
+            # Load audio
+            audio, sample_rate = torchaudio.load(str(audio_path))
+            
+            # Resample to 24kHz if needed
+            if sample_rate != 24000:
+                resampler = torchaudio.transforms.Resample(sample_rate, 24000)
+                audio = resampler(audio)
+                logger.info(f"Resampled audio from {sample_rate}Hz to 24kHz")
+            
+            # Convert to mono if stereo
+            if audio.shape[0] > 1:
+                audio = torch.mean(audio, dim=0, keepdim=True)
+                logger.info("Converted stereo audio to mono")
+            
+            # Move to device and set compute type
+            audio = audio.to(self.device)
+            if self.compute_type == "float16":
+                audio = audio.half()
+            
+            # For now, use a default reference text
+            # TODO: Implement ASR to get actual reference text
+            reference_text = "This is a reference audio sample."
+            
+            logger.info("Reference audio processed successfully")
+            return audio, reference_text
+            
+        except Exception as e:
+            logger.error(f"Failed to process reference audio: {e}")
+            raise
+    
+    def synthesize_speech(
+        self, 
+        text: str, 
+        reference_audio_path: Union[str, Path],
+        output_path: Optional[Union[str, Path]] = None
+    ) -> Path:
+        """
+        Synthesize speech using F5-TTS.
+        
+        Args:
+            text: Text to synthesize
+            reference_audio_path: Path to reference voice audio
+            output_path: Output audio file path (optional)
+            
+        Returns:
+            Path to generated audio file
+        """
+        try:
+            start_time = time.time()
+            logger.info(f"Synthesizing speech for text length: {len(text)}")
+            
+            # Ensure model is loaded
+            if self.model is None:
+                self.load_model()
+            
+            # Process reference audio
+            ref_audio, ref_text = self.process_reference_audio(reference_audio_path)
+            
+            # Generate output path if not provided
+            if output_path is None:
+                timestamp = int(time.time())
+                output_path = TEMP_PATH / f"f5tts_output_{timestamp}.wav"
+            
+            output_path = Path(output_path)
+            output_path.parent.mkdir(parents=True, exist_ok=True)
+            
+            # Generate speech
+            logger.info("Running F5-TTS inference...")
+            
+            with torch.no_grad():
+                # Generate audio
+                generated_audio = self.model.infer(
+                    text=text,
+                    ref_audio=ref_audio,
+                    ref_text=ref_text,
+                    gen_text=text
+                )
+                
+                # Convert to CPU and save
+                if isinstance(generated_audio, torch.Tensor):
+                    generated_audio = generated_audio.cpu().float()
+                    
+                    # Save audio file
+                    torchaudio.save(
+                        str(output_path),
+                        generated_audio,
+                        24000  # 24kHz sample rate
+                    )
+                else:
+                    raise RuntimeError(f"Unexpected model output type: {type(generated_audio)}")
+            
+            # Performance tracking
+            inference_time = time.time() - start_time
+            self.last_inference_time = inference_time
+            
+            logger.info(f"Speech synthesis completed in {inference_time:.2f}s")
+            logger.info(f"Output saved to: {output_path}")
+            
+            return output_path
+            
+        except Exception as e:
+            logger.error(f"Failed to synthesize speech: {e}")
+            raise
+    
+    def get_model_info(self) -> dict:
+        """Get information about the loaded model."""
+        return {
+            "model_name": self.model_name,
+            "compute_type": self.compute_type,
+            "device": self.device,
+            "model_loaded": self.model is not None,
+            "model_load_time": self.model_load_time,
+            "last_inference_time": self.last_inference_time,
+            "cuda_available": torch.cuda.is_available(),
+            "cuda_memory": torch.cuda.get_device_properties(0).total_memory if torch.cuda.is_available() else None
+        }
+    
+    def cleanup(self):
+        """Clean up model and free memory."""
+        try:
+            if self.model is not None:
+                del self.model
+                self.model = None
+                
+            if self.vocoder is not None:
+                del self.vocoder
+                self.vocoder = None
+                
+            if torch.cuda.is_available():
+                torch.cuda.empty_cache()
+                
+            logger.info("F5-TTS engine cleaned up")
+            
+        except Exception as e:
+            logger.error(f"Failed to cleanup F5-TTS engine: {e}")
+
+# Global engine instance for warm loading
+_f5tts_engine = None
+
+def get_f5tts_engine() -> F5TTSEngine:
+    """Get global F5-TTS engine instance."""
+    global _f5tts_engine
+    if _f5tts_engine is None:
+        _f5tts_engine = F5TTSEngine()
+    return _f5tts_engine
+
+def process_tts(text: str, reference_audio_path: Union[str, Path]) -> Path:
+    """
+    Convenience function for TTS processing.
+    
+    Args:
+        text: Text to synthesize  
+        reference_audio_path: Path to reference audio
+        
+    Returns:
+        Path to generated audio file
+    """
+    engine = get_f5tts_engine()
+    return engine.synthesize_speech(text, reference_audio_path)
+
+# Test function
+if __name__ == "__main__":
+    """Test F5-TTS engine."""
+    try:
+        engine = F5TTSEngine()
+        logger.info("F5-TTS engine test passed")
+        
+        # Print model info
+        info = engine.get_model_info()
+        for key, value in info.items():
+            logger.info(f"{key}: {value}")
+            
+    except Exception as e:
+        logger.error(f"F5-TTS engine test failed: {e}")
+        sys.exit(1)

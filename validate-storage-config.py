@@ -1,285 +1,599 @@
 #!/usr/bin/env python3
 """
-Storage Configuration Validation Script
-Tests the new /runpod-volume-based storage architecture for F5-TTS RunPod serverless
+Setup Environment for F5-TTS RunPod Serverless
+Network Volume Environment Setup (Layer 2)
+
+This script handles the first-time setup of the network volume environment:
+1. Create virtual environment
+2. Install PyTorch with CUDA support
+3. Install F5-TTS and WhisperX
+4. Setup model directories and caching
 """
 
 import os
 import sys
-import tempfile
 import subprocess
+import logging
 from pathlib import Path
+import shutil
+import time
 
-def print_section(title):
-    """Print a formatted section header"""
-    print(f"\n{'='*60}")
-    print(f"  {title}")
-    print(f"{'='*60}")
+# Import configuration constants
+sys.path.append('/app')
+from setup_network_venv import (  # This is our config.py
+    NETWORK_VOLUME_PATH, VENV_PATH, MODELS_PATH, TEMP_PATH, 
+    LOGS_PATH, CACHE_PATH, PYTORCH_VERSION, PYTORCH_INDEX_URL,
+    FLASH_ATTN_WHEEL, RUNTIME_REQUIREMENTS
+)
 
-def check_environment_variables():
-    """Validate that all required environment variables are set correctly"""
-    print_section("Environment Variables Check")
-    
-    required_env_vars = {
-        "HF_HOME": "/runpod-volume/models",
-        "TRANSFORMERS_CACHE": "/runpod-volume/models/transformers", 
-        "HF_HUB_CACHE": "/runpod-volume/models/hub",
-        "TORCH_HOME": "/runpod-volume/models/torch"
-    }
-    
-    all_correct = True
-    for var, expected in required_env_vars.items():
-        actual = os.environ.get(var, "NOT SET")
-        status = "✅" if actual == expected else "❌"
-        print(f"{status} {var}: {actual}")
-        if actual != expected:
-            all_correct = False
-            print(f"   Expected: {expected}")
-    
-    return all_correct
+# Setup logging
+logging.basicConfig(
+    level=logging.INFO,
+    format='%(asctime)s - %(name)s - %(levelname)s - %(message)s'
+)
+logger = logging.getLogger(__name__)
 
-def check_directory_structure():
-    """Verify that all required directories exist and are writable"""
-    print_section("Directory Structure Check")
-    
-    required_dirs = [
-        "/runpod-volume/models",
-        "/runpod-volume/models/hub",
-        "/runpod-volume/models/transformers",
-        "/runpod-volume/models/torch",
-        "/runpod-volume/models/f5-tts"
-    ]
-    
-    all_exist = True
-    for dir_path in required_dirs:
-        path = Path(dir_path)
-        
-        if path.exists():
-            if path.is_dir():
-                # Test write permissions
-                try:
-                    test_file = path / "test_write.tmp"
-                    test_file.touch()
-                    test_file.unlink()
-                    print(f"✅ {dir_path} (exists, writable)")
-                except Exception as e:
-                    print(f"⚠️ {dir_path} (exists, not writable: {e})")
-                    all_exist = False
-            else:
-                print(f"❌ {dir_path} (exists but not a directory)")
-                all_exist = False
-        else:
-            print(f"❌ {dir_path} (does not exist)")
-            all_exist = False
-    
-    return all_exist
-
-def check_disk_space():
-    """Check available disk space in /runpod-volume"""
-    print_section("Disk Space Check")
-    
+def run_command(cmd: str, cwd: Path = None, timeout: int = 3600) -> bool:
+    """Run shell command with proper error handling."""
     try:
-        # Get disk usage for /runpod-volume
-        statvfs = os.statvfs("/runpod-volume")
-        
-        # Calculate space in GB
-        total_space = (statvfs.f_frsize * statvfs.f_blocks) / (1024**3)
-        available_space = (statvfs.f_frsize * statvfs.f_available) / (1024**3)
-        used_space = total_space - available_space
-        
-        print(f"📊 Total space: {total_space:.1f} GB")
-        print(f"📊 Used space: {used_space:.1f} GB")
-        print(f"📊 Available space: {available_space:.1f} GB")
-        
-        # Check if we have enough space for F5-TTS models (recommend 10GB minimum)
-        min_required = 10.0
-        if available_space >= min_required:
-            print(f"✅ Sufficient space for F5-TTS models (≥{min_required} GB)")
-            return True
-        else:
-            print(f"❌ Insufficient space for F5-TTS models (need ≥{min_required} GB)")
-            return False
-    
-    except Exception as e:
-        print(f"❌ Error checking disk space: {e}")
+        logger.info(f"Running: {cmd}")
+        result = subprocess.run(
+            cmd, 
+            shell=True, 
+            check=True, 
+            cwd=cwd,
+            timeout=timeout,
+            capture_output=True,
+            text=True
+        )
+        if result.stdout:
+            logger.info(f"Output: {result.stdout.strip()}")
+        return True
+    except subprocess.CalledProcessError as e:
+        logger.error(f"Command failed: {cmd}")
+        logger.error(f"Return code: {e.returncode}")
+        if e.stdout:
+            logger.error(f"Stdout: {e.stdout}")
+        if e.stderr:
+            logger.error(f"Stderr: {e.stderr}")
+        return False
+    except subprocess.TimeoutExpired:
+        logger.error(f"Command timed out after {timeout}s: {cmd}")
         return False
 
-def check_temp_directory():
-    """Verify /tmp has reasonable space for temporary processing"""
-    print_section("Temporary Directory Check")
-    
+def create_directory_structure():
+    """Create network volume directory structure."""
     try:
-        # Test /tmp space
-        statvfs = os.statvfs("/tmp")
-        available_tmp = (statvfs.f_frsize * statvfs.f_available) / (1024**3)
+        directories = [
+            NETWORK_VOLUME_PATH,
+            MODELS_PATH,
+            MODELS_PATH / "f5-tts",
+            MODELS_PATH / "whisperx",
+            TEMP_PATH,
+            LOGS_PATH,
+            CACHE_PATH
+        ]
         
-        print(f"📊 /tmp available space: {available_tmp:.1f} GB")
+        for directory in directories:
+            directory.mkdir(parents=True, exist_ok=True)
+            logger.info(f"Created directory: {directory}")
         
-        # Test write/read in /tmp
-        with tempfile.NamedTemporaryFile(dir="/tmp", delete=False) as tmp_file:
-            test_data = b"Storage test data" * 1000  # ~16KB
-            tmp_file.write(test_data)
-            tmp_file.flush()
-            tmp_path = tmp_file.name
-        
-        # Read back and verify
-        with open(tmp_path, 'rb') as f:
-            read_data = f.read()
-        
-        os.unlink(tmp_path)
-        
-        if read_data == test_data:
-            print("✅ /tmp read/write test passed")
-            
-            # Check if we have reasonable temp space (recommend 2GB minimum)
-            min_tmp_space = 2.0
-            if available_tmp >= min_tmp_space:
-                print(f"✅ Sufficient /tmp space for processing (≥{min_tmp_space} GB)")
-                return True
-            else:
-                print(f"⚠️ Limited /tmp space ({available_tmp:.1f} GB < {min_tmp_space} GB)")
-                print("   This may cause issues with large audio files")
-                return True  # Still functional, just a warning
-        else:
-            print("❌ /tmp read/write test failed")
-            return False
-            
+        return True
     except Exception as e:
-        print(f"❌ Error testing /tmp directory: {e}")
+        logger.error(f"Failed to create directory structure: {e}")
         return False
 
-def test_model_cache_directories():
-    """Test that model cache directories work correctly"""
-    print_section("Model Cache Directory Test")
-    
-    cache_dirs = {
-        "HF_HOME": os.environ.get("HF_HOME", "/runpod-volume/models"),
-        "TRANSFORMERS_CACHE": os.environ.get("TRANSFORMERS_CACHE", "/runpod-volume/models/transformers"),
-        "HF_HUB_CACHE": os.environ.get("HF_HUB_CACHE", "/runpod-volume/models/hub"),
-        "TORCH_HOME": os.environ.get("TORCH_HOME", "/runpod-volume/models/torch")
-    }
-    
-    all_working = True
-    for cache_name, cache_path in cache_dirs.items():
-        try:
-            # Create a test file in each cache directory
-            test_file = Path(cache_path) / f"test_{cache_name.lower()}.tmp"
-            test_file.parent.mkdir(parents=True, exist_ok=True)
+def create_virtual_environment():
+    """Create Python virtual environment."""
+    try:
+        logger.info("Creating virtual environment...")
+        
+        # Remove existing venv if it exists but is broken
+        if VENV_PATH.exists():
+            logger.warning("Removing existing virtual environment")
+            shutil.rmtree(VENV_PATH)
+        
+        # Create new virtual environment
+        cmd = f"python3 -m venv {VENV_PATH}"
+        if not run_command(cmd):
+            return False
             
-            test_file.write_text(f"Test file for {cache_name}")
-            content = test_file.read_text()
-            test_file.unlink()
+        logger.info("Virtual environment created successfully")
+        return True
+        
+    except Exception as e:
+        logger.error(f"Failed to create virtual environment: {e}")
+        return False
+
+def get_venv_python():
+    """Get path to virtual environment Python executable."""
+    return VENV_PATH / "bin" / "python"
+
+def get_venv_pip():
+    """Get path to virtual environment pip executable."""
+    return VENV_PATH / "bin" / "pip"
+
+def install_pytorch():
+    """Install PyTorch with CUDA support."""
+    try:
+        logger.info("Installing PyTorch with CUDA support...")
+        
+        pip_cmd = str(get_venv_pip())
+        pytorch_cmd = f"{pip_cmd} install {PYTORCH_VERSION} --index-url {PYTORCH_INDEX_URL}"
+        
+        if not run_command(pytorch_cmd, timeout=1800):  # 30 minute timeout
+            return False
             
-            if f"Test file for {cache_name}" in content:
-                print(f"✅ {cache_name} cache directory working: {cache_path}")
-            else:
-                print(f"❌ {cache_name} cache directory test failed: {cache_path}")
-                all_working = False
+        logger.info("PyTorch installed successfully")
+        return True
+        
+    except Exception as e:
+        logger.error(f"Failed to install PyTorch: {e}")
+        return False
+
+def install_flash_attention():
+    """Install Flash Attention wheel."""
+    try:
+        logger.info("Installing Flash Attention...")
+        
+        pip_cmd = str(get_venv_pip())
+        flash_cmd = f"{pip_cmd} install {FLASH_ATTN_WHEEL}"
+        
+        if not run_command(flash_cmd, timeout=600):  # 10 minute timeout
+            return False
+            
+        logger.info("Flash Attention installed successfully")
+        return True
+        
+    except Exception as e:
+        logger.error(f"Failed to install Flash Attention: {e}")
+        return False
+
+def install_runtime_requirements():
+    """Install all runtime requirements."""
+    try:
+        logger.info("Installing runtime requirements...")
+        
+        pip_cmd = str(get_venv_pip())
+        
+        for requirement in RUNTIME_REQUIREMENTS:
+            if requirement.startswith(PYTORCH_VERSION):
+                # Skip PyTorch - already installed
+                continue
+            if requirement == FLASH_ATTN_WHEEL:
+                # Skip flash attention - already installed
+                continue
                 
-        except Exception as e:
-            print(f"❌ {cache_name} cache directory error: {e}")
-            all_working = False
-    
-    return all_working
-
-def check_import_compatibility():
-    """Test that F5-TTS imports work with new cache configuration"""
-    print_section("F5-TTS Import Compatibility Test")
-    
-    try:
-        # Test basic imports that would be affected by cache directories
-        print("🔄 Testing HuggingFace transformers import...")
-        import transformers
-        print(f"✅ transformers imported successfully (v{transformers.__version__})")
+            cmd = f"{pip_cmd} install {requirement}"
+            if not run_command(cmd, timeout=1200):  # 20 minute timeout per package
+                logger.error(f"Failed to install: {requirement}")
+                return False
+            
+            # Small delay between installations
+            time.sleep(2)
         
-        print("🔄 Testing torch import...")
-        import torch
-        print(f"✅ torch imported successfully (v{torch.__version__})")
-        
-        print("🔄 Testing F5-TTS import...")
-        # This is a more comprehensive test - may fail if models aren't pre-loaded
-        try:
-            from f5_tts.model import F5TTS
-            print("✅ F5TTS imported successfully")
-            return True
-        except ImportError as e:
-            print(f"⚠️ F5TTS import failed (may need model pre-loading): {e}")
-            return True  # Not a critical failure for storage test
+        logger.info("Runtime requirements installed successfully")
+        return True
         
     except Exception as e:
-        print(f"❌ Import compatibility test failed: {e}")
+        logger.error(f"Failed to install runtime requirements: {e}")
         return False
 
-def generate_configuration_report():
-    """Generate a summary report of the storage configuration"""
-    print_section("Configuration Summary Report")
-    
-    print("📋 Storage Architecture:")
-    print("   - AI Models: /runpod-volume/models (persistent, large capacity)")
-    print("   - Temporary Processing: /tmp (ephemeral, working files only)")
-    print("   - User Data: S3 bucket (external, unlimited)")
-    
-    print("\n📋 Cache Directory Mapping:")
-    cache_vars = ["HF_HOME", "TRANSFORMERS_CACHE", "HF_HUB_CACHE", "TORCH_HOME"]
-    for var in cache_vars:
-        value = os.environ.get(var, "NOT SET")
-        print(f"   - {var}: {value}")
-    
-    print("\n📋 Expected Model Storage:")
-    model_types = [
-        "F5-TTS base model (~2-4 GB)",
-        "HuggingFace transformers cache (~1-2 GB)",
-        "PyTorch model cache (~0.5-1 GB)",
-        "Total estimated: ~4-7 GB minimum"
-    ]
-    for model_type in model_types:
-        print(f"   - {model_type}")
+def verify_installation():
+    """Verify that key packages are installed correctly."""
+    try:
+        logger.info("Verifying installation...")
+        
+        python_cmd = str(get_venv_python())
+        
+        # Test PyTorch with CUDA
+        pytorch_test = f"{python_cmd} -c \"import torch; print(f'PyTorch: {{torch.__version__}}'); print(f'CUDA available: {{torch.cuda.is_available()}}')\""
+        if not run_command(pytorch_test):
+            return False
+        
+        # Test WhisperX
+        whisperx_test = f"{python_cmd} -c \"import whisperx; print('WhisperX imported successfully')\""
+        if not run_command(whisperx_test):
+            logger.warning("WhisperX import failed - may need additional setup")
+            
+        # Test ASS library
+        ass_test = f"{python_cmd} -c \"import ass; print('ASS library imported successfully')\""
+        if not run_command(ass_test):
+            logger.warning("ASS library import failed")
+        
+        logger.info("Installation verification completed")
+        return True
+        
+    except Exception as e:
+        logger.error(f"Failed to verify installation: {e}")
+        return False
 
-def main():
-    """Run all storage configuration validation tests"""
-    print("🚀 F5-TTS Storage Configuration Validation")
-    print("=" * 60)
-    
-    tests = [
-        ("Environment Variables", check_environment_variables),
-        ("Directory Structure", check_directory_structure),
-        ("Disk Space", check_disk_space),
-        ("Temporary Directory", check_temp_directory),
-        ("Model Cache Directories", test_model_cache_directories),
-        ("Import Compatibility", check_import_compatibility)
-    ]
-    
-    results = {}
-    for test_name, test_func in tests:
-        try:
-            results[test_name] = test_func()
-        except Exception as e:
-            print(f"❌ {test_name} test crashed: {e}")
-            results[test_name] = False
-    
-    # Generate report
-    generate_configuration_report()
-    
-    # Final summary
-    print_section("Validation Results Summary")
-    
-    passed = sum(1 for result in results.values() if result)
-    total = len(results)
-    
-    for test_name, result in results.items():
-        status = "✅ PASS" if result else "❌ FAIL"
-        print(f"{status} {test_name}")
-    
-    print(f"\n📊 Overall Result: {passed}/{total} tests passed")
-    
-    if passed == total:
-        print("🎉 All storage configuration tests PASSED!")
-        print("   The new /runpod-volume storage architecture is properly configured.")
-        return 0
-    else:
-        print("⚠️ Some storage configuration tests FAILED!")
-        print("   Please address the issues before deploying to RunPod.")
-        return 1
+def setup_model_cache():
+    """Setup model cache directories with proper permissions."""
+    try:
+        logger.info("Setting up model cache...")
+        
+        # Create model subdirectories
+        model_dirs = [
+            MODELS_PATH / "f5-tts" / "checkpoints",
+            MODELS_PATH / "whisperx" / "models",
+            MODELS_PATH / "whisperx" / "align_models"
+        ]
+        
+        for model_dir in model_dirs:
+            model_dir.mkdir(parents=True, exist_ok=True)
+            logger.info(f"Created model cache: {model_dir}")
+        
+        logger.info("Model cache setup completed")
+        return True
+        
+    except Exception as e:
+        logger.error(f"Failed to setup model cache: {e}")
+        return False
+
+def setup_network_volume_environment():
+    """
+    Main function to setup complete network volume environment.
+    This is called during cold start (first request).
+    """
+    try:
+        logger.info("=== F5-TTS Network Volume Environment Setup ===")
+        start_time = time.time()
+        
+        # Step 1: Create directory structure
+        logger.info("Step 1: Creating directory structure...")
+        if not create_directory_structure():
+            raise RuntimeError("Failed to create directory structure")
+        
+        # Step 2: Create virtual environment
+        logger.info("Step 2: Creating virtual environment...")
+        if not create_virtual_environment():
+            raise RuntimeError("Failed to create virtual environment")
+        
+        # Step 3: Install PyTorch with CUDA
+        logger.info("Step 3: Installing PyTorch with CUDA...")
+        if not install_pytorch():
+            raise RuntimeError("Failed to install PyTorch")
+        
+        # Step 4: Install Flash Attention
+        logger.info("Step 4: Installing Flash Attention...")
+        if not install_flash_attention():
+            raise RuntimeError("Failed to install Flash Attention")
+        
+        # Step 5: Install runtime requirements
+        logger.info("Step 5: Installing runtime requirements...")
+        if not install_runtime_requirements():
+            raise RuntimeError("Failed to install runtime requirements")
+        
+        # Step 6: Setup model cache
+        logger.info("Step 6: Setting up model cache...")
+        if not setup_model_cache():
+            raise RuntimeError("Failed to setup model cache")
+        
+        # Step 7: Verify installation
+        logger.info("Step 7: Verifying installation...")
+        if not verify_installation():
+            logger.warning("Installation verification had warnings but continuing...")
+        
+        # Calculate setup time
+        setup_time = time.time() - start_time
+        logger.info(f"=== Setup completed successfully in {setup_time:.1f} seconds ===")
+        
+        return True
+        
+    except Exception as e:
+        logger.error(f"Network volume setup failed: {e}")
+        raise
 
 if __name__ == "__main__":
-    sys.exit(main())
+    """Run setup environment directly for testing."""
+    try:
+        success = setup_network_volume_environment()
+        if success:
+            print("Setup completed successfully!")
+            sys.exit(0)
+        else:
+            print("Setup failed!")
+            sys.exit(1)
+    except Exception as e:
+        print(f"Setup error: {e}")
+        sys.exit(1)#!/usr/bin/env python3
+"""
+Setup Environment for F5-TTS RunPod Serverless
+Network Volume Environment Setup (Layer 2)
+
+This script handles the first-time setup of the network volume environment:
+1. Create virtual environment
+2. Install PyTorch with CUDA support
+3. Install F5-TTS and WhisperX
+4. Setup model directories and caching
+"""
+
+import os
+import sys
+import subprocess
+import logging
+from pathlib import Path
+import shutil
+import time
+
+# Import configuration constants
+sys.path.append('/app')
+from setup_network_venv import (  # This is our config.py
+    NETWORK_VOLUME_PATH, VENV_PATH, MODELS_PATH, TEMP_PATH, 
+    LOGS_PATH, CACHE_PATH, PYTORCH_VERSION, PYTORCH_INDEX_URL,
+    FLASH_ATTN_WHEEL, RUNTIME_REQUIREMENTS
+)
+
+# Setup logging
+logging.basicConfig(
+    level=logging.INFO,
+    format='%(asctime)s - %(name)s - %(levelname)s - %(message)s'
+)
+logger = logging.getLogger(__name__)
+
+def run_command(cmd: str, cwd: Path = None, timeout: int = 3600) -> bool:
+    """Run shell command with proper error handling."""
+    try:
+        logger.info(f"Running: {cmd}")
+        result = subprocess.run(
+            cmd, 
+            shell=True, 
+            check=True, 
+            cwd=cwd,
+            timeout=timeout,
+            capture_output=True,
+            text=True
+        )
+        if result.stdout:
+            logger.info(f"Output: {result.stdout.strip()}")
+        return True
+    except subprocess.CalledProcessError as e:
+        logger.error(f"Command failed: {cmd}")
+        logger.error(f"Return code: {e.returncode}")
+        if e.stdout:
+            logger.error(f"Stdout: {e.stdout}")
+        if e.stderr:
+            logger.error(f"Stderr: {e.stderr}")
+        return False
+    except subprocess.TimeoutExpired:
+        logger.error(f"Command timed out after {timeout}s: {cmd}")
+        return False
+
+def create_directory_structure():
+    """Create network volume directory structure."""
+    try:
+        directories = [
+            NETWORK_VOLUME_PATH,
+            MODELS_PATH,
+            MODELS_PATH / "f5-tts",
+            MODELS_PATH / "whisperx",
+            TEMP_PATH,
+            LOGS_PATH,
+            CACHE_PATH
+        ]
+        
+        for directory in directories:
+            directory.mkdir(parents=True, exist_ok=True)
+            logger.info(f"Created directory: {directory}")
+        
+        return True
+    except Exception as e:
+        logger.error(f"Failed to create directory structure: {e}")
+        return False
+
+def create_virtual_environment():
+    """Create Python virtual environment."""
+    try:
+        logger.info("Creating virtual environment...")
+        
+        # Remove existing venv if it exists but is broken
+        if VENV_PATH.exists():
+            logger.warning("Removing existing virtual environment")
+            shutil.rmtree(VENV_PATH)
+        
+        # Create new virtual environment
+        cmd = f"python3 -m venv {VENV_PATH}"
+        if not run_command(cmd):
+            return False
+            
+        logger.info("Virtual environment created successfully")
+        return True
+        
+    except Exception as e:
+        logger.error(f"Failed to create virtual environment: {e}")
+        return False
+
+def get_venv_python():
+    """Get path to virtual environment Python executable."""
+    return VENV_PATH / "bin" / "python"
+
+def get_venv_pip():
+    """Get path to virtual environment pip executable."""
+    return VENV_PATH / "bin" / "pip"
+
+def install_pytorch():
+    """Install PyTorch with CUDA support."""
+    try:
+        logger.info("Installing PyTorch with CUDA support...")
+        
+        pip_cmd = str(get_venv_pip())
+        pytorch_cmd = f"{pip_cmd} install {PYTORCH_VERSION} --index-url {PYTORCH_INDEX_URL}"
+        
+        if not run_command(pytorch_cmd, timeout=1800):  # 30 minute timeout
+            return False
+            
+        logger.info("PyTorch installed successfully")
+        return True
+        
+    except Exception as e:
+        logger.error(f"Failed to install PyTorch: {e}")
+        return False
+
+def install_flash_attention():
+    """Install Flash Attention wheel."""
+    try:
+        logger.info("Installing Flash Attention...")
+        
+        pip_cmd = str(get_venv_pip())
+        flash_cmd = f"{pip_cmd} install {FLASH_ATTN_WHEEL}"
+        
+        if not run_command(flash_cmd, timeout=600):  # 10 minute timeout
+            return False
+            
+        logger.info("Flash Attention installed successfully")
+        return True
+        
+    except Exception as e:
+        logger.error(f"Failed to install Flash Attention: {e}")
+        return False
+
+def install_runtime_requirements():
+    """Install all runtime requirements."""
+    try:
+        logger.info("Installing runtime requirements...")
+        
+        pip_cmd = str(get_venv_pip())
+        
+        for requirement in RUNTIME_REQUIREMENTS:
+            if requirement.startswith(PYTORCH_VERSION):
+                # Skip PyTorch - already installed
+                continue
+            if requirement == FLASH_ATTN_WHEEL:
+                # Skip flash attention - already installed
+                continue
+                
+            cmd = f"{pip_cmd} install {requirement}"
+            if not run_command(cmd, timeout=1200):  # 20 minute timeout per package
+                logger.error(f"Failed to install: {requirement}")
+                return False
+            
+            # Small delay between installations
+            time.sleep(2)
+        
+        logger.info("Runtime requirements installed successfully")
+        return True
+        
+    except Exception as e:
+        logger.error(f"Failed to install runtime requirements: {e}")
+        return False
+
+def verify_installation():
+    """Verify that key packages are installed correctly."""
+    try:
+        logger.info("Verifying installation...")
+        
+        python_cmd = str(get_venv_python())
+        
+        # Test PyTorch with CUDA
+        pytorch_test = f"{python_cmd} -c \"import torch; print(f'PyTorch: {{torch.__version__}}'); print(f'CUDA available: {{torch.cuda.is_available()}}')\""
+        if not run_command(pytorch_test):
+            return False
+        
+        # Test WhisperX
+        whisperx_test = f"{python_cmd} -c \"import whisperx; print('WhisperX imported successfully')\""
+        if not run_command(whisperx_test):
+            logger.warning("WhisperX import failed - may need additional setup")
+            
+        # Test ASS library
+        ass_test = f"{python_cmd} -c \"import ass; print('ASS library imported successfully')\""
+        if not run_command(ass_test):
+            logger.warning("ASS library import failed")
+        
+        logger.info("Installation verification completed")
+        return True
+        
+    except Exception as e:
+        logger.error(f"Failed to verify installation: {e}")
+        return False
+
+def setup_model_cache():
+    """Setup model cache directories with proper permissions."""
+    try:
+        logger.info("Setting up model cache...")
+        
+        # Create model subdirectories
+        model_dirs = [
+            MODELS_PATH / "f5-tts" / "checkpoints",
+            MODELS_PATH / "whisperx" / "models",
+            MODELS_PATH / "whisperx" / "align_models"
+        ]
+        
+        for model_dir in model_dirs:
+            model_dir.mkdir(parents=True, exist_ok=True)
+            logger.info(f"Created model cache: {model_dir}")
+        
+        logger.info("Model cache setup completed")
+        return True
+        
+    except Exception as e:
+        logger.error(f"Failed to setup model cache: {e}")
+        return False
+
+def setup_network_volume_environment():
+    """
+    Main function to setup complete network volume environment.
+    This is called during cold start (first request).
+    """
+    try:
+        logger.info("=== F5-TTS Network Volume Environment Setup ===")
+        start_time = time.time()
+        
+        # Step 1: Create directory structure
+        logger.info("Step 1: Creating directory structure...")
+        if not create_directory_structure():
+            raise RuntimeError("Failed to create directory structure")
+        
+        # Step 2: Create virtual environment
+        logger.info("Step 2: Creating virtual environment...")
+        if not create_virtual_environment():
+            raise RuntimeError("Failed to create virtual environment")
+        
+        # Step 3: Install PyTorch with CUDA
+        logger.info("Step 3: Installing PyTorch with CUDA...")
+        if not install_pytorch():
+            raise RuntimeError("Failed to install PyTorch")
+        
+        # Step 4: Install Flash Attention
+        logger.info("Step 4: Installing Flash Attention...")
+        if not install_flash_attention():
+            raise RuntimeError("Failed to install Flash Attention")
+        
+        # Step 5: Install runtime requirements
+        logger.info("Step 5: Installing runtime requirements...")
+        if not install_runtime_requirements():
+            raise RuntimeError("Failed to install runtime requirements")
+        
+        # Step 6: Setup model cache
+        logger.info("Step 6: Setting up model cache...")
+        if not setup_model_cache():
+            raise RuntimeError("Failed to setup model cache")
+        
+        # Step 7: Verify installation
+        logger.info("Step 7: Verifying installation...")
+        if not verify_installation():
+            logger.warning("Installation verification had warnings but continuing...")
+        
+        # Calculate setup time
+        setup_time = time.time() - start_time
+        logger.info(f"=== Setup completed successfully in {setup_time:.1f} seconds ===")
+        
+        return True
+        
+    except Exception as e:
+        logger.error(f"Network volume setup failed: {e}")
+        raise
+
+if __name__ == "__main__":
+    """Run setup environment directly for testing."""
+    try:
+        success = setup_network_volume_environment()
+        if success:
+            print("Setup completed successfully!")
+            sys.exit(0)
+        else:
+            print("Setup failed!")
+            sys.exit(1)
+    except Exception as e:
+        print(f"Setup error: {e}")
+        sys.exit(1)

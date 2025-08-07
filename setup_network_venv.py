@@ -1,223 +1,141 @@
-#!/usr/bin/env python3
 """
-Network Volume Virtual Environment Setup
-Creates and manages Python virtual environment on /runpod-volume
+Configuration constants for F5-TTS RunPod Serverless
+
+Defines paths, URLs, and constants for the 2-layer architecture.
 """
+
 import os
-import sys
-import subprocess
-import shutil
 from pathlib import Path
 
-def check_package_installed(package_name, venv_python):
-    """Check if a package is already installed in the virtual environment."""
-    try:
-        cmd = [str(venv_python), "-c", f"import {package_name}"]
-        subprocess.check_call(cmd, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
-        return True
-    except subprocess.CalledProcessError:
-        return False
-    except Exception:
-        return False
+# Network Volume Configuration
+NETWORK_VOLUME_PATH = Path("/runpod-volume/f5tts")
+VENV_PATH = NETWORK_VOLUME_PATH / "venv"
+MODELS_PATH = NETWORK_VOLUME_PATH / "models"
+TEMP_PATH = NETWORK_VOLUME_PATH / "temp"
+LOGS_PATH = NETWORK_VOLUME_PATH / "logs"
+CACHE_PATH = NETWORK_VOLUME_PATH / "cache"
+SETUP_COMPLETE_FLAG = NETWORK_VOLUME_PATH / "setup_complete.flag"
 
-def setup_network_volume_venv():
-    """Create and configure virtual environment on network volume."""
-    
-    # Network volume paths
-    volume_root = Path("/runpod-volume")
-    venv_path = volume_root / "venv"
-    models_path = volume_root / "models" 
-    cache_path = volume_root / "cache"
-    
-    print(f"🔧 Setting up network volume virtual environment...")
-    print(f"   Volume root: {volume_root}")
-    print(f"   Venv path: {venv_path}")
-    print(f"   Models path: {models_path}")
-    
-    # Check network volume availability
-    if not volume_root.exists():
-        print(f"❌ Network volume not available at {volume_root}")
-        return False
-        
-    # Check available space
-    statvfs = os.statvfs(str(volume_root))
-    free_space_gb = (statvfs.f_frsize * statvfs.f_available) / (1024**3)
-    print(f"📊 Network volume free space: {free_space_gb:.1f}GB")
-    
-    if free_space_gb < 10:
-        print(f"⚠️ Low disk space on network volume: {free_space_gb:.1f}GB")
-        return False
-    
-    # Create directory structure
-    for path in [models_path, cache_path]:
-        path.mkdir(parents=True, exist_ok=True)
-        print(f"✅ Created: {path}")
-    
-    # Create virtual environment if it doesn't exist
-    if not venv_path.exists():
-        print(f"🏗️ Creating virtual environment at {venv_path}")
-        try:
-            subprocess.check_call([sys.executable, "-m", "venv", str(venv_path)])
-            print(f"✅ Virtual environment created successfully")
-        except subprocess.CalledProcessError as e:
-            print(f"❌ Failed to create virtual environment: {e}")
-            return False
-    else:
-        print(f"✅ Virtual environment already exists at {venv_path}")
-    
-    # Get venv python and pip paths
-    venv_python = venv_path / "bin" / "python"
-    venv_pip = venv_path / "bin" / "pip"
-    
-    if not venv_python.exists():
-        print(f"❌ Virtual environment Python not found: {venv_python}")
-        return False
-        
-    print(f"🐍 Using venv Python: {venv_python}")
-    print(f"📦 Using venv pip: {venv_pip}")
-    
-    # Set environment variables for this session
-    os.environ['VIRTUAL_ENV'] = str(venv_path)
-    os.environ['PATH'] = f"{venv_path / 'bin'}:{os.environ.get('PATH', '')}"
-    
-    # Set cache directories to network volume
-    os.environ['HF_HOME'] = str(models_path)
-    os.environ['TRANSFORMERS_CACHE'] = str(models_path)
-    os.environ['HF_HUB_CACHE'] = str(models_path / 'hub')
-    os.environ['TORCH_HOME'] = str(models_path / 'torch')
-    os.environ['PIP_CACHE_DIR'] = str(cache_path / 'pip')
-    
-    # Create cache subdirectories
-    for cache_dir in ['hub', 'torch']:
-        (models_path / cache_dir).mkdir(exist_ok=True)
-    (cache_path / 'pip').mkdir(parents=True, exist_ok=True)
-    
-    print(f"✅ Environment variables configured")
-    
-    # Install packages in order of importance and size
-    package_installs = [
-        # Core dependencies (small, essential)
-        ("runpod", "runpod"),
-        ("boto3", "boto3"), 
-        ("requests", "requests"),
-        ("librosa", "librosa"),
-        ("soundfile", "soundfile"),
-        ("ass", "ass"),
-        
-        # PyTorch (large but essential, install first to establish CUDA)
-        ("torch torchvision torchaudio --index-url https://download.pytorch.org/whl/cu121", "torch"),
-        
-        # Transformers (medium size, essential for F5-TTS)
-        ("transformers>=4.48.1", "transformers"),
-        
-        # F5-TTS itself
-        ("f5-tts", "f5_tts"),
-        
-        # Optional but important (install these if space allows)
-        ("google-cloud-speech", "google.cloud.speech"),
-        ("whisperx", "whisperx"),
-        
-        # Flash attention (largest, most problematic - install last)
-        ("flash-attn --no-build-isolation", "flash_attn"),
-    ]
-    
-    for install_cmd, import_name in package_installs:
-        # Check if already installed
-        if check_package_installed(import_name.split('.')[0], venv_python):
-            print(f"✅ {import_name} already installed")
-            continue
-            
-        # Check disk space before installation
-        statvfs = os.statvfs(str(volume_root))
-        free_space_gb = (statvfs.f_frsize * statvfs.f_available) / (1024**3)
-        
-        if free_space_gb < 2:  # Less than 2GB free
-            print(f"⚠️ Skipping {import_name} - insufficient space: {free_space_gb:.1f}GB")
-            continue
-            
-        try:
-            print(f"📦 Installing: {install_cmd}")
-            # Parse install command properly
-            if "--" in install_cmd:
-                # Handle commands with special flags like "torch torchvision torchaudio --index-url ..."
-                cmd = [str(venv_pip), "install", "--no-cache-dir"] + install_cmd.split()
-            else:
-                # Handle simple package names
-                cmd = [str(venv_pip), "install", "--no-cache-dir", install_cmd]
-            subprocess.check_call(cmd, cwd=str(volume_root))
-            print(f"✅ Installed: {import_name}")
-        except subprocess.CalledProcessError as e:
-            print(f"⚠️ Failed to install {import_name}: {e}")
-            # Continue with other packages - don't fail completely
-    
-    print(f"🎉 Network volume virtual environment setup complete!")
-    print(f"📊 Final disk usage:")
-    
-    # Report disk usage
-    statvfs = os.statvfs(str(volume_root))
-    free_space_gb = (statvfs.f_frsize * statvfs.f_available) / (1024**3)
-    used_space_gb = (statvfs.f_frsize * (statvfs.f_blocks - statvfs.f_available)) / (1024**3)
-    print(f"   Used: {used_space_gb:.1f}GB")
-    print(f"   Free: {free_space_gb:.1f}GB") 
-    
-    return True
+# Model Paths
+F5TTS_MODELS_PATH = MODELS_PATH / "f5-tts"
+WHISPERX_MODELS_PATH = MODELS_PATH / "whisperx"
 
-if __name__ == "__main__":
-    print("🚀 F5-TTS Network Volume Virtual Environment Setup")
-    print("📋 This setup creates Python virtual environment on RunPod network volume")
-    print()
-    
-    try:
-        success = setup_network_volume_venv()
-        if success:
-            print("✅ Network volume virtual environment setup complete!")
-            print("🎯 Container ready for RunPod serverless execution")
-            print()
-            print("📊 Setup Summary:")
-            print("   ✅ Virtual environment created")
-            print("   ✅ Essential packages installed")
-            print("   ✅ Cache directories configured")
-            print("   ✅ Environment variables set")
-            sys.exit(0)
-        else:
-            print("⚠️ Network volume virtual environment setup had issues!")
-            print("🔧 Some packages may be missing, but basic functionality should work")
-            print()
-            print("📋 Troubleshooting Info:")
-            print("   - Check RunPod network volume is mounted at /runpod-volume")
-            print("   - Verify sufficient disk space (minimum 10GB free)")
-            print("   - Review package installation logs above")
-            print("   - Container will attempt to continue with available packages")
-            print()
-            print("⚡ Continuing startup - container may work with reduced functionality")
-            # Don't exit with error - let container continue and try to work
-            sys.exit(0)
-    except Exception as e:
-        print(f"💥 Unexpected error during setup: {e}")
-        print()
-        print("🔍 Diagnostic Information:")
-        
-        # Provide detailed diagnostic info
-        try:
-            import os
-            print(f"   - Network volume exists: {os.path.exists('/runpod-volume')}")
-            if os.path.exists('/runpod-volume'):
-                import shutil
-                usage = shutil.disk_usage('/runpod-volume')
-                free_gb = usage.free / (1024**3)
-                print(f"   - Network volume free space: {free_gb:.1f}GB")
-            print(f"   - Python version: {sys.version}")
-            print(f"   - Current directory: {os.getcwd()}")
-        except:
-            print("   - Could not gather diagnostic info")
-            
-        print()
-        import traceback
-        traceback.print_exc()
-        print()
-        print("🚨 CRITICAL: Setup failed completely!")
-        print("📞 This likely indicates a RunPod configuration issue")
-        print("🔧 Check: Network volume mounting, disk space, Python environment")
-        print()
-        print("⚠️  Container startup will fail - please review RunPod configuration")
-        sys.exit(1)
+# PyTorch Installation
+PYTORCH_INDEX_URL = "https://download.pytorch.org/whl/cu126"
+PYTORCH_VERSION = "torch==2.6.0 torchvision==0.21.0 torchaudio==2.6.0"
+
+# Flash Attention Wheel for Python 3.10 + CUDA 12.6 + PyTorch 2.6
+FLASH_ATTN_WHEEL = (
+    "https://github.com/Dao-AILab/flash-attention/releases/download/"
+    "v2.8.0.post2/flash_attn-2.8.0.post2+cu12torch2.6cxx11abiFALSE-cp310-cp310-linux_x86_64.whl"
+)
+
+# S3 Configuration
+S3_BUCKET = os.getenv("S3_BUCKET")
+AWS_ACCESS_KEY_ID = os.getenv("AWS_ACCESS_KEY_ID")
+AWS_SECRET_ACCESS_KEY = os.getenv("AWS_SECRET_ACCESS_KEY")
+AWS_REGION = os.getenv("AWS_REGION", "us-east-1")
+AWS_ENDPOINT_URL = os.getenv("AWS_ENDPOINT_URL")
+
+# Performance Settings
+DEFAULT_BATCH_SIZE = 16
+DEFAULT_COMPUTE_TYPE = "float16"
+WHISPERX_MODEL = "large-v2"
+
+# Timeouts and Retries
+SETUP_TIMEOUT = 1800  # 30 minutes for first-time setup
+MODEL_LOAD_TIMEOUT = 600  # 10 minutes for model loading
+S3_RETRY_COUNT = 3
+S3_RETRY_DELAY = 2
+
+# Logging Configuration
+LOG_LEVEL = os.getenv("LOG_LEVEL", "INFO")
+LOG_FORMAT = "%(asctime)s - %(name)s - %(levelname)s - %(message)s"
+
+# Runtime Requirements (installed on network volume)
+RUNTIME_REQUIREMENTS = [
+    f"{PYTORCH_VERSION} --index-url {PYTORCH_INDEX_URL}",
+    f"{FLASH_ATTN_WHEEL}",
+    "whisperx",
+    "git+https://github.com/SWivid/F5-TTS.git",
+    "python-ass>=0.5.0",
+    "librosa>=0.10.0",
+    "soundfile>=0.12.0",
+    "torchaudio>=2.6.0",
+    "transformers>=4.40.0",
+    "accelerate>=0.30.0",
+    "datasets>=2.20.0",
+    "nltk>=3.8.1",
+    "pyannote-audio>=3.1.0",
+    "faster-whisper>=1.0.0"
+]"""
+Configuration constants for F5-TTS RunPod Serverless
+
+Defines paths, URLs, and constants for the 2-layer architecture.
+"""
+
+import os
+from pathlib import Path
+
+# Network Volume Configuration
+NETWORK_VOLUME_PATH = Path("/runpod-volume/f5tts")
+VENV_PATH = NETWORK_VOLUME_PATH / "venv"
+MODELS_PATH = NETWORK_VOLUME_PATH / "models"
+TEMP_PATH = NETWORK_VOLUME_PATH / "temp"
+LOGS_PATH = NETWORK_VOLUME_PATH / "logs"
+CACHE_PATH = NETWORK_VOLUME_PATH / "cache"
+SETUP_COMPLETE_FLAG = NETWORK_VOLUME_PATH / "setup_complete.flag"
+
+# Model Paths
+F5TTS_MODELS_PATH = MODELS_PATH / "f5-tts"
+WHISPERX_MODELS_PATH = MODELS_PATH / "whisperx"
+
+# PyTorch Installation
+PYTORCH_INDEX_URL = "https://download.pytorch.org/whl/cu126"
+PYTORCH_VERSION = "torch==2.6.0 torchvision==0.21.0 torchaudio==2.6.0"
+
+# Flash Attention Wheel for Python 3.10 + CUDA 12.6 + PyTorch 2.6
+FLASH_ATTN_WHEEL = (
+    "https://github.com/Dao-AILab/flash-attention/releases/download/"
+    "v2.8.0.post2/flash_attn-2.8.0.post2+cu12torch2.6cxx11abiFALSE-cp310-cp310-linux_x86_64.whl"
+)
+
+# S3 Configuration
+S3_BUCKET = os.getenv("S3_BUCKET")
+AWS_ACCESS_KEY_ID = os.getenv("AWS_ACCESS_KEY_ID")
+AWS_SECRET_ACCESS_KEY = os.getenv("AWS_SECRET_ACCESS_KEY")
+AWS_REGION = os.getenv("AWS_REGION", "us-east-1")
+AWS_ENDPOINT_URL = os.getenv("AWS_ENDPOINT_URL")
+
+# Performance Settings
+DEFAULT_BATCH_SIZE = 16
+DEFAULT_COMPUTE_TYPE = "float16"
+WHISPERX_MODEL = "large-v2"
+
+# Timeouts and Retries
+SETUP_TIMEOUT = 1800  # 30 minutes for first-time setup
+MODEL_LOAD_TIMEOUT = 600  # 10 minutes for model loading
+S3_RETRY_COUNT = 3
+S3_RETRY_DELAY = 2
+
+# Logging Configuration
+LOG_LEVEL = os.getenv("LOG_LEVEL", "INFO")
+LOG_FORMAT = "%(asctime)s - %(name)s - %(levelname)s - %(message)s"
+
+# Runtime Requirements (installed on network volume)
+RUNTIME_REQUIREMENTS = [
+    f"{PYTORCH_VERSION} --index-url {PYTORCH_INDEX_URL}",
+    f"{FLASH_ATTN_WHEEL}",
+    "whisperx",
+    "git+https://github.com/SWivid/F5-TTS.git",
+    "python-ass>=0.5.0",
+    "librosa>=0.10.0",
+    "soundfile>=0.12.0",
+    "torchaudio>=2.6.0",
+    "transformers>=4.40.0",
+    "accelerate>=0.30.0",
+    "datasets>=2.20.0",
+    "nltk>=3.8.1",
+    "pyannote-audio>=3.1.0",
+    "faster-whisper>=1.0.0"
+]

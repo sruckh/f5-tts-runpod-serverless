@@ -1,182 +1,201 @@
-# F5-TTS RunPod Serverless
+# F5-TTS RunPod Serverless v3.0
 
-🎯 **High-performance text-to-speech using F5-TTS on RunPod serverless infrastructure**
+**Complete architectural redesign** - Third restart with proper 2-layer architecture addressing all previous failures.
 
-This implementation follows **proper RunPod serverless patterns** with:
-- ⚡ **Pre-loaded models** for sub-second cold starts
-- 🔄 **Synchronous processing** with immediate results
-- 🏗️ **Build-time optimizations** (flash_attn, model caching)
-- 📦 **Stateless architecture** optimized for serverless
+## Architecture Overview
 
-## 🚀 Quick Start
+### Layer 1: Slim Container (<2GB)
+- **Purpose**: GitHub Actions buildable container
+- **Contents**: Python 3.10-slim, RunPod handler, minimal dependencies
+- **Constraints**: Must build successfully on GitHub Actions
+- **Size Limit**: <2GB total
 
-### 1. Build Container
+### Layer 2: Network Volume (/runpod-volume/f5tts/)
+- **Purpose**: Heavy ML dependencies and model cache  
+- **Contents**: Virtual environment, PyTorch, F5-TTS, WhisperX, models
+- **Availability**: Runtime only (not during build)
+- **Performance**: Warm loading for 1-3s inference
 
-```bash
-# Build optimized serverless container
-docker build -f Dockerfile.runpod -t f5-tts-serverless:latest .
+## Key Features
 
-# Push to registry
-docker tag f5-tts-serverless:latest your-registry/f5-tts:latest
-docker push your-registry/f5-tts:latest
-```
+✅ **Constraint Compliant**: Respects container size and network volume timing  
+✅ **Warm Loading**: Models persist in memory across requests  
+✅ **Word-Level Timing**: WhisperX integration with forced alignment  
+✅ **ASS Subtitles**: Professional subtitle generation  
+✅ **S3 Integration**: Input/output audio file handling  
+✅ **Error Resilient**: Comprehensive error handling and recovery  
 
-### 2. Deploy to RunPod
+## API Interface
 
-1. Create RunPod Serverless Endpoint
-2. Use image: `your-registry/f5-tts:latest`
-3. Set environment variables:
-   ```
-   S3_BUCKET=your-s3-bucket
-   AWS_ACCESS_KEY_ID=your-access-key
-   AWS_SECRET_ACCESS_KEY=your-secret-key
-   AWS_REGION=us-east-1
-   AWS_ENDPOINT_URL=https://s3.backblazeb2.com  # Optional for B2
-   ```
-
-### 3. Test API
-
-```bash
-# Generate TTS (synchronous - returns result immediately)
-curl -X POST "https://api.runpod.ai/v2/{endpoint_id}/runsync" \
-  -H "Content-Type: application/json" \
-  -d '{
-    "input": {
-      "text": "Hello, this is a test of the new F5-TTS serverless architecture!",
-      "local_voice": "my-voice.wav"
-    }
-  }'
-
-# Response (immediate):
+```json
 {
-  "audio_url": "https://s3.amazonaws.com/.../output.wav",
-  "duration": 3.2,
-  "status": "completed"
+  "input": {
+    "audio_url": "s3://bucket/input.wav",
+    "voice_reference_url": "s3://bucket/reference.wav", 
+    "text": "Text to synthesize",
+    "options": {
+      "create_subtitles": true,
+      "subtitle_format": "ass"
+    }
+  }
 }
 ```
 
-## 📡 API Reference
-
-For complete API documentation, see [API.md](API.md).
-
-**Key Endpoints:**
-- **TTS Generation**: POST `/runsync` - Primary endpoint for text-to-speech
-- **Voice Upload**: POST `/runsync` with `endpoint: "upload"`
-- **List Voices**: POST `/runsync` with `endpoint: "list_voices"`
-- **Download Files**: POST `/runsync` with `endpoint: "download"`
-
-## 🏗️ Architecture
-
-### ✅ Current Serverless Architecture
+## Project Structure
 
 ```
-┌─────────────────────────────────────────────────────────────┐
-│                 CONTAINER INITIALIZATION                    │
-│ • Models pre-loaded (F5-TTS, flash_attn)                  │
-│ • No runtime downloads or installations                   │
-│ • Ready for immediate inference                           │
-└─────────────────────────────────────────────────────────────┘
-                              │
-                              ▼
-┌─────────────────────────────────────────────────────────────┐
-│                    SERVERLESS HANDLER                       │
-│ • Synchronous processing                                   │
-│ • Direct result return                                     │
-│ • No threading or job tracking                            │
-│ • Stateless execution                                      │
-└─────────────────────────────────────────────────────────────┘
-                              │
-                              ▼
-┌─────────────────────────────────────────────────────────────┐
-│                      RESPONSE                               │
-│ • Immediate audio_url                                      │
-│ • Complete in single request                               │
-│ • No status polling needed                                 │
-└─────────────────────────────────────────────────────────────┘
+f5-tts/
+├── Dockerfile                  # Slim container definition  
+├── handler.py                 # RunPod serverless handler
+├── requirements.txt           # Container dependencies (minimal)
+├── runtime_requirements.txt   # Network volume dependencies (heavy ML)
+├── src/
+│   ├── setup_environment.py  # First-time environment setup
+│   ├── f5tts_engine.py       # F5-TTS model management
+│   ├── whisperx_engine.py    # WhisperX timing generation
+│   ├── subtitle_generator.py # ASS subtitle creation
+│   ├── s3_client.py          # S3 utilities  
+│   └── config.py             # Configuration constants
+├── scripts/
+│   └── setup_runtime.sh      # Network volume setup
+└── tests/
+    └── test_handler.py       # Basic tests
 ```
 
-## 🔧 Technical Details
+## Deployment
 
-### Build-Time Optimizations
+1. **Build Container**: Builds on GitHub Actions (<2GB)
+2. **Deploy to RunPod**: Container starts successfully  
+3. **First Request**: Installs dependencies on network volume
+4. **Subsequent Requests**: Uses cached models for 1-3s inference
 
-- **Model Pre-loading**: F5-TTS models cached during build
-- **flash_attn Installation**: Compatible wheel installed at build time
-- **Storage Optimization**: Uses `/tmp` (10-20GB) instead of limited container storage
-- **Dependency Minimization**: Only essential packages for runtime
+## Environment Variables
 
-### Runtime Performance
+| Variable | Description | Required |
+|----------|-------------|----------|
+| `S3_BUCKET` | S3 bucket for audio files | Yes |
+| `AWS_ACCESS_KEY_ID` | AWS access key | Yes |
+| `AWS_SECRET_ACCESS_KEY` | AWS secret key | Yes |
+| `AWS_REGION` | AWS region | Yes |
+| `AWS_ENDPOINT_URL` | S3 endpoint URL | Optional |
 
-- **Cold Start**: ~2-3 seconds (vs 30+ seconds before)
-- **Inference**: ~1-2 seconds per 10 words
-- **Memory Usage**: ~4-6GB GPU memory
-- **Storage**: Temporary files auto-cleaned
+## Error Recovery
 
-## 📝 Environment Variables
+- **Cold Start Failures**: Automatic retry with exponential backoff
+- **Model Loading**: Graceful degradation and error reporting  
+- **S3 Operations**: Retry logic with proper error handling
+- **Memory Management**: Automatic cleanup and garbage collection
 
-| Variable | Required | Description | Example |
-|----------|----------|-------------|---------|
-| `S3_BUCKET` | Yes | S3 bucket name | `my-tts-bucket` |
-| `AWS_ACCESS_KEY_ID` | Yes | S3 access key | `AKIA...` |
-| `AWS_SECRET_ACCESS_KEY` | Yes | S3 secret key | `xyz123...` |
-| `AWS_REGION` | No | S3 region | `us-east-1` |
-| `AWS_ENDPOINT_URL` | No | Custom S3 endpoint | `https://s3.backblazeb2.com` |
+## Performance Targets
 
-## 🧪 Local Testing
-
-```bash
-# Run container locally
-docker run --gpus all -p 8000:8000 \
-  -e S3_BUCKET=your-bucket \
-  -e AWS_ACCESS_KEY_ID=your-key \
-  -e AWS_SECRET_ACCESS_KEY=your-secret \
-  -e RUNPOD_REALTIME_PORT=8000 \
-  f5-tts-serverless:latest
-
-# Test request
-curl -X POST "http://localhost:8000/run" \
-  -H "Content-Type: application/json" \
-  -d '{"input": {"text": "Hello world!"}}'
-```
-
-## 📊 Performance Comparison
-
-| Metric | Old Architecture | New Architecture | Improvement |
-|--------|------------------|------------------|-------------|
-| Cold Start | 30-60 seconds | 2-3 seconds | **90% faster** |
-| Success Rate | ~20% | ~99% | **5x more reliable** |
-| API Complexity | 4 endpoints + polling | 1 endpoint | **75% simpler** |
-| Resource Usage | High (repeated installs) | Low (pre-optimized) | **60% less resources** |
-
-## 🔍 Troubleshooting
-
-### Common Issues
-
-**Q: "Models not loading"**
-A: Models are pre-loaded during build. Check Docker build logs for errors.
-
-**Q: "S3 upload failures"**  
-A: Verify S3 credentials and bucket permissions. Check s3_utils.py logs.
-
-**Q: "Out of memory errors"**
-A: Use GPU with at least 8GB VRAM. Consider shorter reference audio.
-
-**Q: "Slow inference"**
-A: Models should be pre-loaded. Check if flash_attn is properly installed.
-
-## 🤝 Contributing
-
-This implementation follows **RunPod serverless best practices**:
-
-1. **Stateless Design**: No persistent state between requests
-2. **Build-Time Optimization**: Heavy operations during container build
-3. **Synchronous Processing**: Direct result return, no background tasks
-4. **Resource Efficiency**: Pre-loaded models, optimized storage paths
-5. **Error Handling**: Graceful failures with meaningful error messages
-
-## 📄 License
-
-This project uses F5-TTS (Apache 2.0) and RunPod SDK (Apache 2.0).
+- **Cold Start**: <60s for first request (includes model downloads)
+- **Warm Inference**: 1-3s for subsequent requests
+- **Container Size**: <2GB for GitHub Actions builds  
+- **Memory Usage**: Efficient model loading and caching
 
 ---
 
-🎯 **Result**: A properly architected serverless TTS system that actually works!
+**Previous Versions**: 
+- v1.0: Failed due to container size constraints (71 commits)
+- v2.0: Failed due to architecture thrashing  
+- v3.0: **Current** - Proper 2-layer architecture design# F5-TTS RunPod Serverless v3.0
+
+**Complete architectural redesign** - Third restart with proper 2-layer architecture addressing all previous failures.
+
+## Architecture Overview
+
+### Layer 1: Slim Container (<2GB)
+- **Purpose**: GitHub Actions buildable container
+- **Contents**: Python 3.10-slim, RunPod handler, minimal dependencies
+- **Constraints**: Must build successfully on GitHub Actions
+- **Size Limit**: <2GB total
+
+### Layer 2: Network Volume (/runpod-volume/f5tts/)
+- **Purpose**: Heavy ML dependencies and model cache  
+- **Contents**: Virtual environment, PyTorch, F5-TTS, WhisperX, models
+- **Availability**: Runtime only (not during build)
+- **Performance**: Warm loading for 1-3s inference
+
+## Key Features
+
+✅ **Constraint Compliant**: Respects container size and network volume timing  
+✅ **Warm Loading**: Models persist in memory across requests  
+✅ **Word-Level Timing**: WhisperX integration with forced alignment  
+✅ **ASS Subtitles**: Professional subtitle generation  
+✅ **S3 Integration**: Input/output audio file handling  
+✅ **Error Resilient**: Comprehensive error handling and recovery  
+
+## API Interface
+
+```json
+{
+  "input": {
+    "audio_url": "s3://bucket/input.wav",
+    "voice_reference_url": "s3://bucket/reference.wav", 
+    "text": "Text to synthesize",
+    "options": {
+      "create_subtitles": true,
+      "subtitle_format": "ass"
+    }
+  }
+}
+```
+
+## Project Structure
+
+```
+f5-tts/
+├── Dockerfile                  # Slim container definition  
+├── handler.py                 # RunPod serverless handler
+├── requirements.txt           # Container dependencies (minimal)
+├── runtime_requirements.txt   # Network volume dependencies (heavy ML)
+├── src/
+│   ├── setup_environment.py  # First-time environment setup
+│   ├── f5tts_engine.py       # F5-TTS model management
+│   ├── whisperx_engine.py    # WhisperX timing generation
+│   ├── subtitle_generator.py # ASS subtitle creation
+│   ├── s3_client.py          # S3 utilities  
+│   └── config.py             # Configuration constants
+├── scripts/
+│   └── setup_runtime.sh      # Network volume setup
+└── tests/
+    └── test_handler.py       # Basic tests
+```
+
+## Deployment
+
+1. **Build Container**: Builds on GitHub Actions (<2GB)
+2. **Deploy to RunPod**: Container starts successfully  
+3. **First Request**: Installs dependencies on network volume
+4. **Subsequent Requests**: Uses cached models for 1-3s inference
+
+## Environment Variables
+
+| Variable | Description | Required |
+|----------|-------------|----------|
+| `S3_BUCKET` | S3 bucket for audio files | Yes |
+| `AWS_ACCESS_KEY_ID` | AWS access key | Yes |
+| `AWS_SECRET_ACCESS_KEY` | AWS secret key | Yes |
+| `AWS_REGION` | AWS region | Yes |
+| `AWS_ENDPOINT_URL` | S3 endpoint URL | Optional |
+
+## Error Recovery
+
+- **Cold Start Failures**: Automatic retry with exponential backoff
+- **Model Loading**: Graceful degradation and error reporting  
+- **S3 Operations**: Retry logic with proper error handling
+- **Memory Management**: Automatic cleanup and garbage collection
+
+## Performance Targets
+
+- **Cold Start**: <60s for first request (includes model downloads)
+- **Warm Inference**: 1-3s for subsequent requests
+- **Container Size**: <2GB for GitHub Actions builds  
+- **Memory Usage**: Efficient model loading and caching
+
+---
+
+**Previous Versions**: 
+- v1.0: Failed due to container size constraints (71 commits)
+- v2.0: Failed due to architecture thrashing  
+- v3.0: **Current** - Proper 2-layer architecture design
