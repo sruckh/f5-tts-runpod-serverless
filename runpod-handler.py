@@ -1,14 +1,14 @@
 #!/usr/bin/env python3
 """
-F5-TTS RunPod Serverless Handler - Proper Serverless Architecture
-================================================================
+F5-TTS RunPod Serverless Handler - Warm Loading Serverless Architecture
+=======================================================================
 
 This implementation follows RunPod serverless best practices:
 - Synchronous processing (no threading)
 - No job tracking or status endpoints
-- Models loaded once during container initialization
+- Models pre-loaded at startup for optimal 1-3s inference performance
 - Direct result return
-- Optimized for stateless execution
+- Optimized for RunPod serverless container reuse patterns
 """
 
 import base64
@@ -35,7 +35,7 @@ print("🚀 Initializing F5-TTS RunPod serverless worker...")
 
 # flash_attn will be checked during runtime installation
 
-print("🔥 Loading models during container startup for optimal performance...")
+print("🔥 Warm loading: Pre-loading models for optimal performance...")
 
 # Set device
 device = "cuda" if torch.cuda.is_available() else "cpu"
@@ -278,7 +278,7 @@ def generate_tts_audio(text: str, voice_path: Optional[str] = None,
     Generate TTS audio using F5-TTS with optimized parameters for stable, high-quality output.
     Returns (output_file_path, duration, error_message)
     """
-    # Warm loading: Models should already be initialized at startup
+    # WARM LOADING: Models should already be initialized at startup
     global f5tts_model, model_load_error
     
     if model_load_error:
@@ -1091,7 +1091,7 @@ def handler(job: Dict[str, Any]) -> Dict[str, Any]:
 
 if __name__ == "__main__":
     print("✅ F5-TTS RunPod serverless worker starting...")
-    print("🎯 Architecture: Synchronous processing with immediate results")
+    print("🎯 Architecture: Warm loading with models pre-loaded for fast inference")
     print("🔥 Warm loading: Pre-loading models for optimal performance...")
     
     # WARM LOADING: Initialize models at startup for fast inference

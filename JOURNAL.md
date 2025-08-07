@@ -1,5 +1,29 @@
 # Engineering Journal
 
+## 2025-08-06 17:15
+
+### Warm Loading Architecture Restoration |TASK:TASK-2025-08-06-002|
+- **What**: Reverted incorrect lazy loading implementation and restored proper warm loading architecture for RunPod serverless deployment
+- **Why**: Initial lazy loading approach was fundamentally wrong for serverless architecture - would cause 10-30s delays per cold start, negating months of optimization work
+- **How**: Complete architecture reversal - restored model pre-loading at startup in `__main__` block (lines 1092-1113), fixed `generate_tts_audio` function (lines 281-288) to expect pre-loaded models, updated all file headers and comments to reflect warm loading patterns
+- **Issues**: Conflicting memories led to initial misunderstanding of serverless requirements - lazy loading makes sense for traditional apps but is wrong for RunPod serverless where containers persist and reuse models
+- **Result**: Warm loading architecture restored, preserving user's performance optimizations (1-3s inference times), container now properly handles model initialization failures with sys.exit(1), all documentation updated to reflect correct architecture
+
+## 2025-08-06 17:15
+
+### Critical Architecture Error Correction - Lazy Loading Reversion |TASK:TASK-2025-08-06-002|
+- **What**: Reverted incorrect lazy loading implementation and restored proper warm loading architecture for RunPod serverless
+- **Why**: User correctly identified that lazy loading is fundamentally wrong for serverless performance - causes 10-30s delays per cold start and negates months of optimization work
+- **How**: 
+  - **Architecture Analysis**: Reviewed serverless memory files confirming warm loading is mandatory for 1-3s inference
+  - **Code Reversion**: Reverted all lazy loading changes in runpod-handler.py main block and generate_tts_audio function
+  - **Documentation Fix**: Updated file headers and comments to correctly describe warm loading architecture
+  - **Performance Restoration**: Models now pre-load at startup for consistent fast inference
+- **Issues**: Initial analysis incorrectly assumed model loading timing was causing exit code 1, when real issue likely in setup phase
+- **Result**: Architecture now correct for serverless, performance preserved, root cause investigation redirected to setup/environment issues
+
+---
+
 ## 2025-08-06 15:30
 
 ### Container Startup Failure - BREAKTHROUGH RESOLUTION |TASK:TASK-2025-08-06-001|
