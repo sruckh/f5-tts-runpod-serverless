@@ -21,61 +21,16 @@ RUN apt-get update && apt-get install -y \
     git \
     && rm -rf /var/lib/apt/lists/*
 
-# Copy minimal requirements first (for Docker layer caching)
-COPY requirements.txt .
-
-# Install Python dependencies (minimal - NO ML libraries)
-RUN pip install --no-cache-dir -r requirements.txt
+# Install minimal Python dependencies (no requirements.txt needed for slim container)
+RUN pip install --no-cache-dir runpod boto3 requests pydantic
 
 # Copy application code
-COPY handler.py .
-COPY config.py .
-COPY s3_client.py .
-COPY setup_environment.py .
+COPY runpod-handler.py ./handler.py
+COPY setup_network_venv.py ./setup_environment.py
+COPY s3_utils.py ./s3_client.py
 
-# Create non-root user for security
-RUN groupadd -r appuser && useradd -r -g appuser appuser
-RUN chown -R appuser:appuser /app
-USER appuser
-
-# Expose port for RunPod
-EXPOSE 8080
-
-# Entry point - RunPod serverless handler
-CMD ["python", "handler.py"]# F5-TTS RunPod Serverless - Slim Container (<2GB)
-# Layer 1 of 2-Layer Architecture
-# 
-# This container contains ONLY minimal dependencies required for:
-# 1. RunPod serverless handler
-# 2. S3 client utilities  
-# 3. Basic system libraries
-#
-# Heavy ML dependencies (PyTorch, F5-TTS, WhisperX) are installed 
-# at runtime on the network volume (/runpod-volume/f5tts/)
-
-FROM python:3.10-slim
-
-# Set working directory
-WORKDIR /app
-
-# Install system dependencies (minimal)
-RUN apt-get update && apt-get install -y \
-    curl \
-    ca-certificates \
-    git \
-    && rm -rf /var/lib/apt/lists/*
-
-# Copy minimal requirements first (for Docker layer caching)
-COPY requirements.txt .
-
-# Install Python dependencies (minimal - NO ML libraries)
-RUN pip install --no-cache-dir -r requirements.txt
-
-# Copy application code
-COPY handler.py .
-COPY config.py .
-COPY s3_client.py .
-COPY setup_environment.py .
+# Create a simple config.py that imports from setup_environment.py
+RUN echo 'from setup_environment import *' > config.py
 
 # Create non-root user for security
 RUN groupadd -r appuser && useradd -r -g appuser appuser

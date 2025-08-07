@@ -1,5 +1,42 @@
 # Task Management
 
+## Latest Task (2025-08-07)
+**Task ID**: TASK-2025-08-07-002
+**Title**: Fix Dockerfile File References for GitHub Build
+**Status**: COMPLETE  
+**Started**: 2025-08-07 14:00
+**Dependencies**: TASK-2025-08-07-001
+
+### Task Context
+- **Previous Work**: GitHub Actions Docker build failing with "file not found" errors
+- **Key Files**: Dockerfile.runpod:25-89 (complete rebuild)
+- **Environment**: GitHub Actions CI/CD pipeline  
+- **Next Steps**: Monitor GitHub Actions build success
+
+### Findings & Decisions
+- **FINDING-001**: Dockerfile referenced files that don't exist due to 71+ commit evolution
+- **FINDING-002**: Project structure changed but Dockerfile wasn't synchronized
+- **DECISION-001**: Map existing files to expected container names → See ARCHITECTURE.md
+- **DECISION-002**: Create config.py dynamically in container for imports → See ARCHITECTURE.md  
+- **DECISION-003**: Eliminate requirements.txt in favor of direct pip install → See ARCHITECTURE.md
+
+### File Changes Made
+- Fixed requirements.txt references (removed - not needed)
+- Fixed handler.py reference (runpod-handler.py → handler.py)
+- Fixed config.py reference (created dynamically from setup_environment.py)
+- Fixed s3_client.py reference (s3_utils.py → s3_client.py)
+- Fixed setup_environment.py reference (setup_network_venv.py → setup_environment.py)
+
+### Task Chain  
+1. ✅ Complete F5-TTS v3 Implementation (TASK-2025-08-07-001)
+2. ✅ Fix Dockerfile File References for GitHub Build (TASK-2025-08-07-002) (CURRENT)
+3. ⏳ Monitor GitHub Actions deployment success
+4. ⏳ Test RunPod serverless deployment
+
+---
+
+# Task Management
+
 ## Active Phase
 **Phase**: F5-TTS RunPod Serverless v3.0 - Complete Architecture Implementation
 **Started**: 2025-08-07
