@@ -30,7 +30,7 @@ COPY setup_network_venv.py ./setup_environment.py
 COPY s3_utils.py ./s3_client.py
 
 # Create a simple config.py that imports from setup_environment.py
-RUN echo 'from setup_environment import *' > config.py
+RUN echo 'import importlib.util, sys; spec = importlib.util.spec_from_file_location("setup_environment", "/app/validate-storage-config.py"); setup_environment = importlib.util.module_from_spec(spec); sys.modules["setup_environment"] = setup_environment; spec.loader.exec_module(setup_environment)' > config.py
 
 # Create non-root user for security
 RUN groupadd -r appuser && useradd -r -g appuser appuser

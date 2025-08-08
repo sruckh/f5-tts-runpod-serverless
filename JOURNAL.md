@@ -1,5 +1,29 @@
 # Engineering Journal
 
+## 2025-08-08 (Session)
+
+### Container Syntax Error Fix for Production Deployment |TASK:TASK-2025-08-08-001|
+- **What**: Fixed critical Python syntax error blocking F5-TTS RunPod container startup during cold start
+- **Why**: Container failing with "invalid syntax (setup_environment.py, line 71)" preventing all deployments
+- **How**: 
+  - Fixed malformed RUNTIME_REQUIREMENTS list in setup_network_venv.py (missing opening bracket `[`)
+  - Resolved file import mapping issue: container expects setup_environment.py but actual file is validate-storage-config.py
+  - Applied Context7-recommended importlib.util.spec_from_file_location pattern for dynamic imports
+  - Fixed pattern replication across runpod-handler.py, CONTRIBUTING.md, and Dockerfile.runpod
+  - Used Serena tools systematically to prevent similar issues across all affected files
+- **Issues**: 
+  - Pattern-based problem required systematic search and fix across multiple files
+  - File mapping strategy from v3.0 implementation caused import resolution conflicts
+  - Had to research proper Python module import patterns for files with hyphens in names
+- **Result**: 
+  - Container startup should now proceed past syntax errors to model loading phase
+  - All import mapping patterns fixed using standard Python importlib approach
+  - File mapping documented in memory for future reference and maintenance
+  - Prevention patterns applied to avoid recurring syntax issues
+  - Ready for production container deployment and testing
+
+---
+
 ## 2025-08-07 14:00
 
 ### Dockerfile File References Fix |TASK:TASK-2025-08-07-002|

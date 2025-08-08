@@ -68,7 +68,7 @@ RUNTIME_REQUIREMENTS = [
     "nltk>=3.8.1",
     "pyannote-audio>=3.1.0",
     "faster-whisper>=1.0.0"
-]"""
+]
 Configuration constants for F5-TTS RunPod Serverless
 
 Defines paths, URLs, and constants for the 2-layer architecture.

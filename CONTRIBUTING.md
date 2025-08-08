@@ -21,7 +21,14 @@ try:
     from s3_utils import S3Client
     from f5tts_engine import F5TTSEngine
     from whisperx_engine import WhisperXEngine
-    from setup_environment import setup_network_volume_environment, check_setup_complete
+    import importlib.util
+import sys
+spec = importlib.util.spec_from_file_location("setup_environment", "/app/validate-storage-config.py")
+setup_environment = importlib.util.module_from_spec(spec)
+sys.modules["setup_environment"] = setup_environment
+spec.loader.exec_module(setup_environment)
+setup_network_volume_environment = setup_environment.setup_network_volume_environment
+check_setup_complete = setup_environment.check_setup_complete
     # ASS subtitle generator is in TASKS.md (renamed file)
     import importlib.util
     spec = importlib.util.spec_from_file_location("ass_generator", "TASKS.md")
@@ -472,7 +479,14 @@ try:
     from s3_utils import S3Client
     from f5tts_engine import F5TTSEngine
     from whisperx_engine import WhisperXEngine
-    from setup_environment import setup_network_volume_environment, check_setup_complete
+    import importlib.util
+import sys
+spec = importlib.util.spec_from_file_location("setup_environment", "/app/validate-storage-config.py")
+setup_environment = importlib.util.module_from_spec(spec)
+sys.modules["setup_environment"] = setup_environment
+spec.loader.exec_module(setup_environment)
+setup_network_volume_environment = setup_environment.setup_network_volume_environment
+check_setup_complete = setup_environment.check_setup_complete
     # ASS subtitle generator is in TASKS.md (renamed file)
     import importlib.util
     spec = importlib.util.spec_from_file_location("ass_generator", "TASKS.md")

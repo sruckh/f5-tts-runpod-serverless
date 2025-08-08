@@ -51,7 +51,13 @@ def setup_environment():
         logger.info("Created directory structure")
         
         # Import setup environment module
-        from setup_environment import setup_network_volume_environment
+        import importlib.util
+import sys
+spec = importlib.util.spec_from_file_location("setup_environment", "/app/validate-storage-config.py")
+setup_environment = importlib.util.module_from_spec(spec)
+sys.modules["setup_environment"] = setup_environment
+spec.loader.exec_module(setup_environment)
+setup_network_volume_environment = setup_environment.setup_network_volume_environment
         
         # Run the full setup
         setup_network_volume_environment()
@@ -293,7 +299,13 @@ def setup_environment():
         logger.info("Created directory structure")
         
         # Import setup environment module
-        from setup_environment import setup_network_volume_environment
+        import importlib.util
+import sys
+spec = importlib.util.spec_from_file_location("setup_environment", "/app/validate-storage-config.py")
+setup_environment = importlib.util.module_from_spec(spec)
+sys.modules["setup_environment"] = setup_environment
+spec.loader.exec_module(setup_environment)
+setup_network_volume_environment = setup_environment.setup_network_volume_environment
         
         # Run the full setup
         setup_network_volume_environment()
